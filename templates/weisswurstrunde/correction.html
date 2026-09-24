@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% load money %}
+{% block title %}Zahlung korrigieren{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">{{ entry.user.name }}</p><h1>Zahlung korrigieren</h1><p>{{ entry.created_at|date:'d.m.Y H:i' }} &middot; {{ entry.amount_cents|euros }} &middot; {{ entry.note }}</p></div></div><section class="narrow-section"><form method="post" class="stack">{% csrf_token %}{% include 'weisswurstrunde/fields.html' %}<button class="button primary" type="submit"><i data-lucide="undo-2" aria-hidden="true"></i>Gegenbuchung erstellen</button></form></section>
+{% endblock %}

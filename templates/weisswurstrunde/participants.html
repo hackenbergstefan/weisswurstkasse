@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% load money %}
+{% block title %}Unsere Runde{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Zusammen schmeckt's besser</p><h1>Unsere Runde <span class="count">{{ participants|length }}</span></h1></div></div>
+<div class="table-scroll"><table><thead><tr><th>Teilnehmer</th><th>Status</th><th class="numeric">Kontostand</th><th><span class="sr-only">Kontoverlauf</span></th></tr></thead><tbody>{% for participant in participants %}<tr><td><span class="person"><span class="avatar">{{ participant.name|initials }}</span><strong>{{ participant.name }}</strong>{% if participant.pk == user.pk %}<span class="badge">Du</span>{% endif %}</span></td><td>{% if participant.current_balance < 0 %}<span class="badge due">Offen</span>{% else %}<span class="badge">{% if participant.current_balance == 0 %}Ausgeglichen{% else %}Guthaben{% endif %}</span>{% endif %}</td><td class="numeric strong {% if participant.current_balance < 0 %}negative{% else %}positive{% endif %}">{{ participant.current_balance|euros }}</td><td><a class="icon-button" href="{% url 'user_history' participant.pk %}" aria-label="Kontoverlauf von {{ participant.name }}" title="Kontoverlauf"><i data-lucide="arrow-up-right" aria-hidden="true"></i></a></td></tr>{% empty %}<tr><td colspan="4">Noch keine Teilnehmer.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Bestellung bearbeiten{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">{{ order.user.name }}</p><h1>{{ order.event.date|date:'l, j. F' }}</h1><p class="deadline">Bestellschluss {{ order.event.deadline|date:'d.m.Y, H:i' }}</p></div><a class="quiet-link" href="{% url 'orders' %}"><i data-lucide="arrow-left" aria-hidden="true"></i>Alle Bestellungen</a></div>
+<section class="narrow-section">{% include 'weisswurstrunde/order_form.html' %}</section>
+{% endblock %}

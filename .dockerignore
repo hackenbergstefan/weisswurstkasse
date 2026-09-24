@@ -1,0 +1,14 @@
+.git
+.venv
+.env
+.env.*
+*.sqlite3*
+__pycache__
+*.pyc
+.ruff_cache
+.coverage
+htmlcov
+data
+backups
+test-results
+staticfiles

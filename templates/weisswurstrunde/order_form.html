@@ -1,0 +1,20 @@
+{% load money %}
+<form method="post" action="{% url 'edit_order' order.pk %}" class="order-form" data-fixed-total="{{ fixed_total }}">
+  {% csrf_token %}{{ form.version }}{{ form.non_field_errors }}
+  {% if order.event.editable %}
+  <div class="order-items">
+  {% for row in rows %}
+    <div class="order-item">
+      <div><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span class="item-unit">{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>
+      <div class="quantity-control"><button type="button" class="step-button" data-step="-1" aria-label="{{ row.product.name }} verringern" title="Verringern"><i data-lucide="minus" aria-hidden="true"></i></button>{{ row.field }}<button type="button" class="step-button" data-step="1" aria-label="{{ row.product.name }} erh&ouml;hen" title="Erh&ouml;hen"><i data-lucide="plus" aria-hidden="true"></i></button></div>
+      {{ row.field.errors }}
+    </div>
+  {% empty %}<p class="empty-state">Noch keine Produkte. <a href="{% url 'products' %}">Sortiment anlegen</a></p>{% endfor %}
+  {% for item in inactive %}<div class="order-item muted"><span>{{ item.product.name }} <small>inaktiv</small></span><span>{{ item.quantity }} &times; {{ item.unit_price_cents|euros }}</span></div>{% endfor %}
+  </div>
+  <div class="order-bottom"><div><span class="small-label">Gesamt</span><output class="order-total" aria-live="polite">{{ display_total|euros }}</output></div><button class="button primary" type="submit"><i data-lucide="check" aria-hidden="true"></i>Bestellung speichern</button></div>
+  {% else %}
+    {% for item in order.items.all %}<div class="order-item"><span>{{ item.product.name }}</span><span>{{ item.quantity }} &times; {{ item.unit_price_cents|euros }}</span></div>{% empty %}<p class="muted">Keine Bestellung</p>{% endfor %}
+    <div class="order-bottom"><span class="badge locked"><i data-lucide="lock-keyhole" aria-hidden="true"></i>Bestellschluss vorbei</span><strong>{{ display_total|euros }}</strong></div>
+  {% endif %}
+</form>
