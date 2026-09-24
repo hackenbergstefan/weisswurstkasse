@@ -30,7 +30,7 @@ from .forms import (
     QuantitiesForm,
     RegisterForm,
 )
-from .models import Event, LedgerEntry, LoginAttempt, Order, PayPalPayment, Product, User
+from .models import Event, EventType, LedgerEntry, LoginAttempt, Order, PayPalPayment, Product, User
 
 
 def error_message(error):
@@ -100,7 +100,7 @@ def logout_view(request):
 
 
 def order_context(order):
-    products = list(Product.objects.filter(active=True))
+    products = list(Product.objects.filter(active=True, event_type=order.event.event_type))
     quantities = {item.product_id: item.quantity for item in order.items.all()}
     form = QuantitiesForm(
         products=products, quantities=quantities, version=order.version, prefix=f"order-{order.pk}"
@@ -128,7 +128,7 @@ def dashboard(request):
         request.user.orders.filter(event__date__gte=timezone.localdate())
         .select_related("event")
         .prefetch_related("items__product")
-        .order_by("event__date")
+        .order_by("event__date", "event__event_type")
     )
     upcoming = [order_context(order) for order in orders]
     return render(
@@ -148,7 +148,9 @@ def edit_order(request, order_id):
     context = order_context(order)
     if request.method == "POST":
         form = QuantitiesForm(
-            request.POST, products=Product.objects.filter(active=True), prefix=f"order-{order.pk}"
+            request.POST,
+            products=Product.objects.filter(active=True, event_type=order.event.event_type),
+            prefix=f"order-{order.pk}",
         )
         if form.is_valid() and form.cleaned_data["version"] is not None:
             try:
@@ -175,7 +177,13 @@ def edit_order(request, order_id):
 @login_required
 @require_GET
 def orders(request):
-    events = Event.objects.order_by("-date")
+    event_type = request.GET.get("event_type", "")
+    event_types = EventType.choices
+    if event_type not in dict(event_types):
+        event_type = ""
+    events = Event.objects.order_by("-date", "event_type")
+    if event_type:
+        events = events.filter(event_type=event_type)
     count_options = (10, 20, 50, 100)
     try:
         count = int(request.GET.get("count", "10"))
@@ -194,7 +202,7 @@ def orders(request):
             messages.error(request, "Dieser Termin existiert nicht.")
     if event is None:
         upcoming = list(
-            Event.objects.filter(date__gte=timezone.localdate()).order_by("date")[:count]
+            events.filter(date__gte=timezone.localdate()).order_by("date", "event_type")[:count]
         )
         quantities = list(
             Order.objects.filter(event__in=upcoming)
@@ -204,7 +212,7 @@ def orders(request):
         )
         products = list(
             Product.objects.filter(
-                Q(active=True)
+                Q(active=True, event_type__in={event.event_type for event in upcoming})
                 | Q(
                     pk__in=[
                         row["items__product_id"] for row in quantities if row["items__product_id"]
@@ -220,6 +228,8 @@ def orders(request):
                 "event": upcoming_event,
                 "quantities": [
                     totals_by_product.get((upcoming_event.pk, product.pk), 0)
+                    if product.event_type == upcoming_event.event_type
+                    else None
                     for product in products
                 ],
             }
@@ -236,6 +246,8 @@ def orders(request):
                 "summaries": summaries,
                 "products": products,
                 "summary_columns": len(products) + 1,
+                "event_type": event_type,
+                "event_types": event_types,
             },
         )
     event_orders = (
@@ -263,6 +275,8 @@ def orders(request):
             "grand_total": grand_total,
             "count": count,
             "count_options": count_options,
+            "event_type": event_type,
+            "event_types": event_types,
         },
     )
 
@@ -288,6 +302,7 @@ def profile(request):
         products=products,
         quantities=dict(request.user.default_items.values_list("product_id", "quantity")),
         prefix="defaults",
+        show_event_type=True,
     )
     if request.method == "POST":
         action = request.POST.get("action")
@@ -309,7 +324,9 @@ def profile(request):
                 messages.success(request, "Passwort geaendert.")
                 return redirect("profile")
         elif action == "defaults":
-            defaults_form = QuantitiesForm(request.POST, products=products, prefix="defaults")
+            defaults_form = QuantitiesForm(
+                request.POST, products=products, prefix="defaults", show_event_type=True
+            )
             if defaults_form.is_valid():
                 services.save_defaults(request.user, defaults_form.quantities())
                 messages.success(
@@ -500,7 +517,9 @@ def history(request, user_id=None):
         entry.running_balance = running
     page = Paginator(list(reversed(entries)), 40).get_page(request.GET.get("page"))
     return render(
-        request, "weisswurstrunde/history.html", {"account": user, "entries": page, "balance": running}
+        request,
+        "weisswurstrunde/history.html",
+        {"account": user, "entries": page, "balance": running},
     )
 
 

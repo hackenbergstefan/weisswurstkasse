@@ -24,6 +24,40 @@ class FormTests(TestCase):
             data["invitation"] = invitation
             self.assertFalse(RegisterForm(data).is_valid())
 
+    def test_registration_accepts_passwords_without_strength_restrictions(self):
+        for password in ["a", "123456789", "password", "stefan@example.org"]:
+            with self.subTest(password=password):
+                form = RegisterForm(
+                    {
+                        "name": "Stefan",
+                        "email": "stefan@example.org",
+                        "paypal_email": "different@example.org",
+                        "password": password,
+                        "password_confirm": password,
+                        "invitation": "test-invitation",
+                    }
+                )
+                self.assertTrue(form.is_valid(), form.errors)
+                user = form.save(commit=False)
+                self.assertNotEqual(user.password, password)
+                self.assertTrue(user.check_password(password))
+
+    def test_registration_still_requires_matching_nonempty_passwords(self):
+        for password, confirmation in [("", ""), ("a", "b")]:
+            with self.subTest(password=password, confirmation=confirmation):
+                form = RegisterForm(
+                    {
+                        "name": "Stefan",
+                        "email": "stefan@example.org",
+                        "paypal_email": "different@example.org",
+                        "password": password,
+                        "password_confirm": confirmation,
+                        "invitation": "test-invitation",
+                    }
+                )
+                self.assertFalse(form.is_valid())
+                self.assertIn("password_confirm", form.errors)
+
     def test_payment_precision_and_positive_amount(self):
         import uuid
 

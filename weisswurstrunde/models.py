@@ -47,7 +47,13 @@ class User(AbstractBaseUser):
         return self.name
 
 
+class EventType(models.TextChoices):
+    WEISSWURST = "WEISSWURST", "Wei\u00dfwurst"
+    LEBERKAESE = "LEBERKAESE", "Leberk\u00e4se"
+
+
 class Product(models.Model):
+    event_type = models.CharField(max_length=12, choices=EventType, default=EventType.WEISSWURST)
     name = models.CharField(max_length=100, unique=True)
     unit = models.CharField(max_length=30, default="Stueck")
     price_cents = models.PositiveIntegerField(validators=[MaxValueValidator(1000000)])
@@ -69,12 +75,16 @@ class Event(models.Model):
         LOCKED = "LOCKED", "Bestellschluss"
         SETTLED = "SETTLED", "Abgeschlossen"
 
-    date = models.DateField(unique=True)
+    event_type = models.CharField(max_length=12, choices=EventType, default=EventType.WEISSWURST)
+    date = models.DateField()
     deadline = models.DateTimeField()
     status = models.CharField(max_length=10, choices=Status, default=Status.OPEN)
 
     class Meta:
-        ordering = ["date"]
+        ordering = ["date", "event_type"]
+        constraints = [
+            models.UniqueConstraint(fields=["date", "event_type"], name="one_event_per_type_date")
+        ]
 
     @property
     def editable(self):

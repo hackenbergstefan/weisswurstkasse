@@ -90,13 +90,19 @@ class ProfileForm(forms.ModelForm):
 class QuantitiesForm(forms.Form):
     version = forms.IntegerField(min_value=0, required=False, widget=forms.HiddenInput())
 
-    def __init__(self, *args, products, quantities=None, version=None, **kwargs):
+    def __init__(
+        self, *args, products, quantities=None, version=None, show_event_type=False, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self.products = list(products)
         self.initial["version"] = version
         for product in self.products:
             self.fields[f"product_{product.pk}"] = forms.IntegerField(
-                label=product.name,
+                label=(
+                    f"{product.get_event_type_display()}: {product.name}"
+                    if show_event_type
+                    else product.name
+                ),
                 min_value=0,
                 max_value=100,
                 initial=(quantities or {}).get(product.pk, 0),
@@ -161,10 +167,16 @@ class PayPalForm(AmountForm):
 
 
 class ProductForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields["event_type"].disabled = True
+
     class Meta:
         model = Product
-        fields = ["name", "unit", "price_cents", "active"]
+        fields = ["event_type", "name", "unit", "price_cents", "active"]
         labels = {
+            "event_type": "Veranstaltungstyp",
             "name": "Produkt",
             "unit": "Einheit",
             "price_cents": "Preis in Cent",

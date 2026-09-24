@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 
-from weisswurstrunde.models import Product
+from weisswurstrunde.models import EventType, Product
 
 
 class Command(BaseCommand):
@@ -9,11 +9,15 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args, **options):
-        for name, unit, price in [
-            ("Wei\u00dfwurst", "St\u00fcck", 160),
-            ("Brezel", "St\u00fcck", 90),
-            ("S\u00fc\u00dfer Senf", "Portion", 30),
-            ("Wei\u00dfbier", "Flasche", 220),
+        for name, unit, price, event_type in [
+            ("Wei\u00dfwurst", "St\u00fcck", 160, EventType.WEISSWURST),
+            ("Brezel", "St\u00fcck", 90, EventType.WEISSWURST),
+            ("S\u00fc\u00dfer Senf", "Portion", 30, EventType.WEISSWURST),
+            ("Wei\u00dfbier", "Flasche", 220, EventType.WEISSWURST),
+            ("Leberkassemmel", "St\u00fcck", 200, EventType.LEBERKAESE),
         ]:
-            Product.objects.get_or_create(name=name, defaults={"unit": unit, "price_cents": price})
+            Product.objects.get_or_create(
+                name=name,
+                defaults={"unit": unit, "price_cents": price, "event_type": event_type},
+            )
         self.stdout.write(self.style.SUCCESS("Example products ready. Review prices in Sortiment."))

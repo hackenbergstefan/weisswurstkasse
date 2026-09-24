@@ -6,7 +6,15 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from weisswurstrunde.models import DefaultItem, Event, Order, PayPalPayment, Product, User
+from weisswurstrunde.models import (
+    DefaultItem,
+    Event,
+    EventType,
+    Order,
+    PayPalPayment,
+    Product,
+    User,
+)
 from weisswurstrunde.services import save_order
 
 
@@ -60,6 +68,10 @@ class ViewTests(TestCase):
             "/profile/",
             {
                 "action": "defaults",
+                **{
+                    f"defaults-product_{product.pk}": 0
+                    for product in Product.objects.exclude(pk=self.product.pk)
+                },
                 f"defaults-product_{self.product.pk}": 2,
             },
         )
@@ -128,6 +140,41 @@ class ViewTests(TestCase):
             self.assertEqual(response.context["count"], 10)
             self.assertEqual(len(response.context["summaries"]), 10)
 
+    def test_leberkaese_forms_and_overview_only_use_matching_products(self):
+        self.client.force_login(self.user)
+        product = Product.objects.get(event_type=EventType.LEBERKAESE)
+        event = Event.objects.create(
+            date=self.event.date,
+            deadline=self.event.deadline,
+            event_type=EventType.LEBERKAESE,
+        )
+        order = Order.objects.create(user=self.user, event=event)
+        response = self.client.get(reverse("edit_order", args=[order.pk]))
+        self.assertEqual(response.context["form"].products, [product])
+        response = self.client.post(
+            reverse("edit_order", args=[order.pk]),
+            {
+                f"order-{order.pk}-version": 0,
+                f"order-{order.pk}-product_{product.pk}": 2,
+                f"order-{order.pk}-product_{self.product.pk}": 99,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(order.items.get().product, product)
+        self.assertEqual(self.user.balance, -400)
+        response = self.client.get("/orders/", {"event_type": EventType.LEBERKAESE})
+        self.assertEqual(response.context["products"], [product])
+        self.assertEqual(response.context["summaries"], [{"event": event, "quantities": [2]}])
+        self.assertContains(response, "Leberk\u00e4se")
+        self.assertContains(response, "event_type=LEBERKAESE")
+        response = self.client.get("/orders/", {"event": event.pk})
+        self.assertEqual(response.context["totals"], {"Leberkassemmel": 2})
+        self.assertEqual(response.context["grand_total"], 400)
+        response = self.client.get("/")
+        for context in response.context["upcoming"]:
+            expected = product if context["order"].event_id == event.pk else self.product
+            self.assertEqual(context["form"].products, [expected])
+
     def test_orders_empty_overview_and_past_event_details(self):
         self.client.force_login(self.user)
         self.event.date = timezone.localdate() - timedelta(days=1)
@@ -146,13 +193,13 @@ class ViewTests(TestCase):
             {
                 "action": "password",
                 "password-old_password": "a-long-test-password",
-                "password-new_password1": "a-new-strong-test-password-2026",
-                "password-new_password2": "a-new-strong-test-password-2026",
+                "password-new_password1": "1",
+                "password-new_password2": "1",
             },
         )
         self.assertEqual(response.status_code, 302)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.check_password("a-new-strong-test-password-2026"))
+        self.assertTrue(self.user.check_password("1"))
         self.assertEqual(self.client.get("/").status_code, 200)
 
     def test_paypal_actions_require_ownership_and_post(self):
@@ -255,6 +302,7 @@ class ViewTests(TestCase):
             "/products/",
             {
                 "product_id": self.product.pk,
+                "event_type": EventType.LEBERKAESE,
                 "name": self.product.name,
                 "unit": "Stueck",
                 "price_cents": 200,
@@ -263,6 +311,8 @@ class ViewTests(TestCase):
         )
         self.assertRedirects(response, "/products/")
         self.assertEqual(self.order.total, 320)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.event_type, EventType.WEISSWURST)
 
     @patch("weisswurstrunde.views.paypal.verify_webhook", return_value=False)
     def test_invalid_webhook_rejected(self, verify):

@@ -77,7 +77,8 @@ All settings are environment-driven; see `deployment.example` and
 | `DEBUG`                | `false`                                                         |
 | `DATABASE_URL`         | Local SQLite; Docker uses `sqlite:////data/db.sqlite3`          |
 | `TIME_ZONE`            | `Europe/Berlin`                                                 |
-| `EVENT_WEEKDAY`        | `3`, Thursday (Monday = 0)                                      |
+| `WEISSWURST_WEEKDAY`   | `3`, Thursday for Weisswurst (Monday = 0)                       |
+| `LEBERKAESE_WEEKDAY`   | `4`, Friday for Leberkaese                                      |
 | `DEADLINE_DAYS_BEFORE` | `1`                                                             |
 | `DEADLINE_TIME`        | `18:00`, local timezone                                         |
 | `UPCOMING_WEEKS`       | `8`, minimum 8                                                  |
@@ -90,6 +91,13 @@ are retained. Products and prices are editable shared application data, not
 hard-coded configuration. The ORM is portable to PostgreSQL; install
 `psycopg[binary]`, set `DATABASE_URL`, and migrate. Existing data migration and
 PostgreSQL operational testing are separate operator tasks.
+
+Weisswurst and Leberkaese have separate weekly schedules and product selections.
+Leberkaese starts with only Leberkassemmel at EUR 2.00; the migration adds this
+product automatically. Both schedules close at 18:00 on the preceding day by
+default. Saved default quantities apply only to the matching event type, and at
+least eight upcoming dates are generated for each type. Product type is fixed
+after creation so existing orders and defaults cannot change categories.
 
 ## Accounting rules
 

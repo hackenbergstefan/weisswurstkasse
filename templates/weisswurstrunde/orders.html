@@ -6,12 +6,15 @@
 <form method="get" class="filter-form">
 	<label for="count">Anzahl</label>
 	<select name="count" id="count">{% for option in count_options %}<option value="{{ option }}" {% if count == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+	<label for="event-type">Runde</label>
+	<select name="event_type" id="event-type"><option value="">Alle Runden</option>{% for value, label in event_types %}<option value="{{ value }}" {% if event_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
 	<label for="event">Termin</label>
-	<select name="event" id="event"><option value="">N&auml;chste Termine</option>{% for option in events %}<option value="{{ option.pk }}" {% if event.pk == option.pk %}selected{% endif %}>{{ option.date|date:'d.m.Y' }} &middot; {{ option.get_status_display }}</option>{% endfor %}</select>
+	<select name="event" id="event"><option value="">N&auml;chste Termine</option>{% for option in events %}<option value="{{ option.pk }}" {% if event.pk == option.pk %}selected{% endif %}>{{ option.date|date:'d.m.Y' }} &middot; {{ option.get_event_type_display }} &middot; {{ option.get_status_display }}</option>{% endfor %}</select>
 	<button type="submit" class="icon-button" title="Ansicht anzeigen" aria-label="Ansicht anzeigen"><i data-lucide="arrow-right" aria-hidden="true"></i></button>
 </form>
 {% if event %}
-<p class="deadline"><a class="quiet-link" href="{% url 'orders' %}?count={{ count }}"><i data-lucide="arrow-left" aria-hidden="true"></i>Zur Termin&uuml;bersicht</a></p>
+<p class="deadline"><a class="quiet-link" href="{% url 'orders' %}?count={{ count }}&amp;event_type={{ event_type }}"><i data-lucide="arrow-left" aria-hidden="true"></i>Zur Termin&uuml;bersicht</a></p>
+<h2 class="section-title">{{ event.get_event_type_display }} &middot; {{ event.date|date:'d.m.Y' }}</h2>
 <section class="totals-band">{% for name, quantity in totals.items %}<div><span class="small-label">{{ name }}</span><strong>{{ quantity }}</strong></div>{% endfor %}<div class="grand-total"><span class="small-label">Gesamt</span><strong>{{ grand_total|euros }}</strong></div></section>
 <div class="table-scroll"><table><thead><tr><th>Teilnehmer</th><th>Bestellung</th><th class="numeric">Betrag</th><th><span class="sr-only">Aktion</span></th></tr></thead><tbody>{% for order in orders %}<tr><td><a class="person" href="{% url 'user_history' order.user_id %}"><span class="avatar">{{ order.user.name|initials }}</span>{{ order.user.name }}</a></td><td><div class="order-description">{% for item in order.items.all %}<span><strong>{{ item.quantity }}</strong> {{ item.product.name }} <small class="muted">&agrave; {{ item.unit_price_cents|euros }}</small></span>{% empty %}<span class="muted">Keine Bestellung</span>{% endfor %}</div></td><td class="numeric strong">{{ order.total|euros }}</td><td><a class="icon-button" href="{% url 'edit_order' order.pk %}" title="Bestellung von {{ order.user.name }} {% if order.event.editable %}bearbeiten{% else %}ansehen{% endif %}" aria-label="Bestellung von {{ order.user.name }} {% if order.event.editable %}bearbeiten{% else %}ansehen{% endif %}"><i data-lucide="{% if order.event.editable %}pencil{% else %}eye{% endif %}" aria-hidden="true"></i></a></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Noch keine Bestellungen.</td></tr>{% endfor %}</tbody></table></div>
 {% else %}
@@ -19,8 +22,8 @@
 	<div class="table-scroll"><table>
 		<thead><tr><th>Termin</th>{% for product in products %}<th class="numeric">{{ product.name }}<small class="block">{{ product.unit }}</small></th>{% endfor %}</tr></thead>
 		<tbody>{% for summary in summaries %}<tr>
-			<td class="nowrap"><a class="quiet-link" href="{% url 'orders' %}?event={{ summary.event.pk }}&amp;count={{ count }}">{{ summary.event.date|date:'D, d.m.Y' }}<i data-lucide="arrow-up-right" aria-hidden="true"></i></a></td>
-			{% for quantity in summary.quantities %}<td class="numeric strong">{{ quantity }}</td>{% endfor %}
+			<td class="nowrap"><a class="quiet-link" href="{% url 'orders' %}?event={{ summary.event.pk }}&amp;count={{ count }}&amp;event_type={{ event_type }}">{{ summary.event.date|date:'D, d.m.Y' }}<i data-lucide="arrow-up-right" aria-hidden="true"></i></a><small class="block muted">{{ summary.event.get_event_type_display }}</small></td>
+			{% for quantity in summary.quantities %}<td class="numeric strong">{{ quantity|default_if_none:'-' }}</td>{% endfor %}
 		</tr>{% empty %}<tr><td colspan="{{ summary_columns }}" class="empty-state">Keine kommenden Termine.</td></tr>{% endfor %}</tbody>
 	</table></div>
 </section>

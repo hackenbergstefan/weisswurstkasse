@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from weisswurstrunde.models import DefaultItem, Event, LedgerEntry, Order, Product, User
+from weisswurstrunde.models import DefaultItem, Event, EventType, LedgerEntry, Order, Product, User
 from weisswurstrunde.services import (
     generate_events,
     manual_payment,
@@ -96,9 +96,49 @@ class AccountingTests(TestCase):
         self.order.items.update(quantity=3)
         self.assertIn(f"Order {self.order.pk}", reconcile()[0])
 
+    def test_event_types_isolate_products_defaults_and_charges(self):
+        product = Product.objects.create(
+            name="Leberkassemmel (Test)", price_cents=200, event_type=EventType.LEBERKAESE
+        )
+        event = Event.objects.create(
+            date=self.event.date,
+            deadline=self.event.deadline,
+            event_type=EventType.LEBERKAESE,
+        )
+        order = Order.objects.create(user=self.user, event=event)
+        for target, wrong_product in [(self.order, product), (order, self.product)]:
+            with self.assertRaises(ValidationError):
+                save_order(target.pk, {wrong_product.pk: 1}, self.user)
+            target.refresh_from_db()
+            self.assertEqual(target.version, 0)
+            self.assertFalse(target.items.exists())
+        save_order(order.pk, {product.pk: 2}, self.user)
+        self.assertEqual(self.user.balance, -400)
+        save_defaults(self.user, {self.product.pk: 3, product.pk: 1})
+        generate_events()
+        for generated in self.user.orders.exclude(pk__in=[order.pk, self.order.pk]):
+            expected_product = (
+                product if generated.event.event_type == EventType.LEBERKAESE else self.product
+            )
+            self.assertEqual(generated.items.get().product_id, expected_product.pk)
+            self.assertEqual(generated.total, 200 if expected_product == product else 480)
+        self.assertEqual(reconcile(), [])
+
+    def test_each_event_type_has_its_own_weekly_schedule(self):
+        with self.settings(WEISSWURST_WEEKDAY=1, LEBERKAESE_WEEKDAY=4):
+            generate_events()
+        for event_type, weekday in [(EventType.WEISSWURST, 1), (EventType.LEBERKAESE, 4)]:
+            events = Event.objects.filter(event_type=event_type).exclude(pk=self.event.pk)
+            self.assertGreaterEqual(events.filter(date__gt=timezone.localdate()).count(), 8)
+            for event in events:
+                self.assertEqual(event.date.weekday(), weekday)
+                deadline = timezone.localtime(event.deadline)
+                self.assertEqual(deadline.date(), event.date - timedelta(days=1))
+                self.assertEqual((deadline.hour, deadline.minute), (18, 0))
+
     def test_eight_future_events_even_on_breakfast_day(self):
         today = timezone.localdate()
-        with self.settings(EVENT_WEEKDAY=today.weekday(), UPCOMING_WEEKS=8):
+        with self.settings(WEISSWURST_WEEKDAY=today.weekday(), UPCOMING_WEEKS=8):
             generate_events(today=today)
         self.assertGreaterEqual(Event.objects.filter(date__gt=today).count(), 8)
         self.assertTrue(Event.objects.filter(date=today + timedelta(weeks=8)).exists())

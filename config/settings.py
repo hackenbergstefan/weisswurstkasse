@@ -50,12 +50,7 @@ DATABASES = {"default": dj_database_url.config(default=f"sqlite:///{BASE_DIR / '
 if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
     DATABASES["default"]["OPTIONS"] = {"timeout": 20, "transaction_mode": "IMMEDIATE"}
 AUTH_USER_MODEL = "weisswurstrunde.User"
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
-]
+AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = "de-de"
 TIME_ZONE = os.environ.get("TIME_ZONE", "Europe/Berlin")
 USE_I18N = True
@@ -81,7 +76,8 @@ SECURE_REFERRER_POLICY = "same-origin"
 if os.environ.get("TRUST_PROXY", "false").lower() == "true":
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 INVITATION_CODE = os.environ.get("INVITATION_CODE", "")
-EVENT_WEEKDAY = int(os.environ.get("EVENT_WEEKDAY", "3"))
+WEISSWURST_WEEKDAY = int(os.environ.get("WEISSWURST_WEEKDAY", "3"))
+LEBERKAESE_WEEKDAY = int(os.environ.get("LEBERKAESE_WEEKDAY", "4"))
 DEADLINE_DAYS_BEFORE = int(os.environ.get("DEADLINE_DAYS_BEFORE", "1"))
 DEADLINE_TIME = os.environ.get("DEADLINE_TIME", "18:00")
 UPCOMING_WEEKS = max(8, int(os.environ.get("UPCOMING_WEEKS", "8")))

@@ -6,7 +6,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, TransactionTestCase
 
-from weisswurstrunde.models import Event, Product
+from weisswurstrunde.models import Event, EventType, Product
 
 
 class CommandTests(TestCase):
@@ -14,7 +14,14 @@ class CommandTests(TestCase):
         output = StringIO()
         call_command("seed_products", stdout=output)
         call_command("seed_products", stdout=output)
-        self.assertEqual(Product.objects.count(), 4)
+        self.assertEqual(Product.objects.count(), 5)
+        product = Product.objects.get(event_type=EventType.LEBERKAESE)
+        self.assertEqual((product.name, product.price_cents), ("Leberkassemmel", 200))
+        product.price_cents = 250
+        product.save()
+        call_command("seed_products", stdout=output)
+        product.refresh_from_db()
+        self.assertEqual(product.price_cents, 250)
         call_command("generate_events", stdout=output)
         call_command("generate_events", stdout=output)
         self.assertGreaterEqual(Event.objects.count(), 8)

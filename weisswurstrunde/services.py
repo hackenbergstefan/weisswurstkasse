@@ -7,7 +7,7 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import DefaultItem, Event, LedgerEntry, Order, OrderItem, Product, User
+from .models import DefaultItem, Event, EventType, LedgerEntry, Order, OrderItem, Product, User
 
 
 def validate_quantities(quantities):
@@ -33,9 +33,12 @@ def save_order(order_id, quantities, actor, expected_version=None):
     if expected_version is not None and order.version != expected_version:
         raise ValidationError("Die Bestellung wurde inzwischen geaendert. Bitte neu laden.")
     old_items = {item.product_id: item for item in order.items.all()}
-    products = {product.pk: product for product in Product.objects.filter(pk__in=quantities)}
+    products = {
+        product.pk: product
+        for product in Product.objects.filter(pk__in=quantities, event_type=order.event.event_type)
+    }
     if set(products) != set(quantities):
-        raise ValidationError("Unbekanntes Produkt.")
+        raise ValidationError("Unbekanntes Produkt oder Produkt eines anderen Veranstaltungstyps.")
     if any(
         not product.active
         and quantities[product_id] != getattr(old_items.get(product_id), "quantity", 0)
@@ -66,7 +69,7 @@ def save_order(order_id, quantities, actor, expected_version=None):
             order=order,
             recorded_by=actor,
             reference=f"order:{order.pk}:{order.version}",
-            note=f"Fruehstueck {order.event.date:%d.%m.%Y} (Stand {order.version})",
+            note=f"{order.event.get_event_type_display()} {order.event.date:%d.%m.%Y} (Stand {order.version})",
         )
     return order
 
@@ -92,7 +95,9 @@ def provision_order(user, event):
     order, created = Order.objects.get_or_create(user=user, event=event)
     if created and event.editable:
         quantities = dict(
-            user.default_items.filter(product__active=True).values_list("product_id", "quantity")
+            user.default_items.filter(
+                product__active=True, product__event_type=event.event_type
+            ).values_list("product_id", "quantity")
         )
         save_order(order.pk, quantities, user)
     return order
@@ -101,23 +106,28 @@ def provision_order(user, event):
 @transaction.atomic
 def generate_events(today=None):
     today = today or timezone.localdate()
-    first = today + timedelta(days=(settings.EVENT_WEEKDAY - today.weekday()) % 7)
     active_users = list(User.objects.filter(is_active=True))
     created_count = 0
-    for offset in range(settings.UPCOMING_WEEKS + 1):
-        event_date = first + timedelta(weeks=offset)
-        deadline_date = event_date - timedelta(days=settings.DEADLINE_DAYS_BEFORE)
-        deadline = timezone.make_aware(
-            datetime.combine(deadline_date, time.fromisoformat(settings.DEADLINE_TIME))
-        )
-        event, created = Event.objects.get_or_create(
-            date=event_date, defaults={"deadline": deadline}
-        )
-        if created:
-            created_count += 1
-        if event.editable:
-            for user in active_users:
-                provision_order(user, event)
+    schedules = (
+        (EventType.WEISSWURST, settings.WEISSWURST_WEEKDAY),
+        (EventType.LEBERKAESE, settings.LEBERKAESE_WEEKDAY),
+    )
+    for event_type, weekday in schedules:
+        first = today + timedelta(days=(weekday - today.weekday()) % 7)
+        for offset in range(settings.UPCOMING_WEEKS + 1):
+            event_date = first + timedelta(weeks=offset)
+            deadline_date = event_date - timedelta(days=settings.DEADLINE_DAYS_BEFORE)
+            deadline = timezone.make_aware(
+                datetime.combine(deadline_date, time.fromisoformat(settings.DEADLINE_TIME))
+            )
+            event, created = Event.objects.get_or_create(
+                date=event_date, event_type=event_type, defaults={"deadline": deadline}
+            )
+            if created:
+                created_count += 1
+            if event.editable:
+                for user in active_users:
+                    provision_order(user, event)
     Event.objects.filter(status=Event.Status.OPEN, deadline__lte=timezone.now()).update(
         status=Event.Status.LOCKED
     )
