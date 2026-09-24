@@ -23,6 +23,7 @@ class User(AbstractBaseUser):
     email = models.EmailField(unique=True)
     paypal_email = models.EmailField()
     is_active = models.BooleanField(default=True)
+    is_admin = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     objects = UserManager()
     USERNAME_FIELD = "email"
@@ -89,6 +90,9 @@ class Event(models.Model):
     @property
     def editable(self):
         return self.status == self.Status.OPEN and timezone.now() < self.deadline
+
+    def can_edit(self, user):
+        return user.is_active and (self.editable or user.is_admin)
 
 
 class Order(models.Model):

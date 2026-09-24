@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, time, timedelta
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -28,7 +28,7 @@ def save_order(order_id, quantities, actor, expected_version=None):
     initial = Order.objects.get(pk=order_id)
     User.objects.select_for_update().get(pk=initial.user_id)
     order = Order.objects.select_for_update().select_related("event").get(pk=order_id)
-    if not order.event.editable:
+    if not order.event.can_edit(actor):
         raise ValidationError("Der Bestellschluss ist vorbei. Die Bestellung bleibt unveraendert.")
     if expected_version is not None and order.version != expected_version:
         raise ValidationError("Die Bestellung wurde inzwischen geaendert. Bitte neu laden.")
@@ -89,6 +89,17 @@ def save_defaults(user, quantities):
             if quantities[product.pk]
         ]
     )
+
+
+@transaction.atomic
+def add_order(user, event, actor):
+    if not actor.is_active or not actor.is_admin:
+        raise PermissionDenied
+    participant = User.objects.select_for_update().get(pk=user.pk)
+    if not participant.is_active:
+        raise ValidationError("Der Teilnehmer ist nicht aktiv.")
+    order, _ = Order.objects.get_or_create(user=participant, event=event)
+    return order
 
 
 def provision_order(user, event):

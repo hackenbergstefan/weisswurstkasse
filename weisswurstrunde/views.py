@@ -8,19 +8,21 @@ from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import paypal, services
 from .forms import (
+    AddOrderForm,
     CorrectionForm,
     LoginForm,
     ManualPaymentForm,
@@ -99,7 +101,8 @@ def logout_view(request):
     return redirect("login")
 
 
-def order_context(order):
+def order_context(order, actor):
+    can_edit = order.event.can_edit(actor)
     products = list(Product.objects.filter(active=True, event_type=order.event.event_type))
     quantities = {item.product_id: item.quantity for item in order.items.all()}
     form = QuantitiesForm(
@@ -117,7 +120,8 @@ def order_context(order):
         "rows": rows,
         "inactive": inactive,
         "fixed_total": fixed_total,
-        "display_total": editable_total if order.event.editable else order.total,
+        "can_edit": can_edit,
+        "display_total": editable_total if can_edit else order.total,
     }
 
 
@@ -130,7 +134,7 @@ def dashboard(request):
         .prefetch_related("items__product")
         .order_by("event__date", "event__event_type")
     )
-    upcoming = [order_context(order) for order in orders]
+    upcoming = [order_context(order, request.user) for order in orders]
     return render(
         request,
         "weisswurstrunde/dashboard.html",
@@ -145,7 +149,7 @@ def edit_order(request, order_id):
         Order.objects.select_related("event", "user").prefetch_related("items__product"),
         pk=order_id,
     )
-    context = order_context(order)
+    context = order_context(order, request.user)
     if request.method == "POST":
         form = QuantitiesForm(
             request.POST,
@@ -161,6 +165,8 @@ def edit_order(request, order_id):
                     request,
                     f"Bestellung fuer {order.user.name} am {order.event.date:%d.%m.} gespeichert.",
                 )
+                if request.user.is_admin:
+                    return redirect(f"{reverse('orders')}?event={order.event_id}")
                 return redirect("dashboard" if order.user_id == request.user.pk else "orders")
             except ValidationError as error:
                 form.add_error(None, error)
@@ -273,12 +279,33 @@ def orders(request):
             "orders": event_orders,
             "totals": totals,
             "grand_total": grand_total,
+            "can_edit": event.can_edit(request.user),
+            "add_order_form": AddOrderForm(event=event) if request.user.is_admin else None,
             "count": count,
             "count_options": count_options,
             "event_type": event_type,
             "event_types": event_types,
         },
     )
+
+
+@login_required
+@require_POST
+def add_order(request, event_id):
+    if not request.user.is_active or not request.user.is_admin:
+        raise PermissionDenied
+    event = get_object_or_404(Event, pk=event_id)
+    form = AddOrderForm(request.POST)
+    if form.is_valid():
+        try:
+            order = services.add_order(form.cleaned_data["participant"], event, request.user)
+        except ValidationError as error:
+            messages.error(request, error_message(error))
+        else:
+            return redirect("edit_order", order_id=order.pk)
+    else:
+        messages.error(request, "Bitte einen aktiven Teilnehmer auswaehlen.")
+    return redirect(f"{reverse('orders')}?event={event.pk}")
 
 
 @login_required

@@ -15,8 +15,16 @@
 {% if event %}
 <p class="deadline"><a class="quiet-link" href="{% url 'orders' %}?count={{ count }}&amp;event_type={{ event_type }}"><i data-lucide="arrow-left" aria-hidden="true"></i>Zur Termin&uuml;bersicht</a></p>
 <h2 class="section-title">{{ event.get_event_type_display }} &middot; {{ event.date|date:'d.m.Y' }}</h2>
+{% if add_order_form and add_order_form.participant.field.queryset.exists %}
+<form method="post" action="{% url 'add_order' event.pk %}" class="filter-form">
+	{% csrf_token %}
+	<label for="{{ add_order_form.participant.id_for_label }}">Teilnehmer</label>
+	{{ add_order_form.participant }}
+	<button type="submit" class="button"><i data-lucide="plus" aria-hidden="true"></i>Bestellung hinzuf&uuml;gen</button>
+</form>
+{% endif %}
 <section class="totals-band">{% for name, quantity in totals.items %}<div><span class="small-label">{{ name }}</span><strong>{{ quantity }}</strong></div>{% endfor %}<div class="grand-total"><span class="small-label">Gesamt</span><strong>{{ grand_total|euros }}</strong></div></section>
-<div class="table-scroll"><table><thead><tr><th>Teilnehmer</th><th>Bestellung</th><th class="numeric">Betrag</th><th><span class="sr-only">Aktion</span></th></tr></thead><tbody>{% for order in orders %}<tr><td><a class="person" href="{% url 'user_history' order.user_id %}"><span class="avatar">{{ order.user.name|initials }}</span>{{ order.user.name }}</a></td><td><div class="order-description">{% for item in order.items.all %}<span><strong>{{ item.quantity }}</strong> {{ item.product.name }} <small class="muted">&agrave; {{ item.unit_price_cents|euros }}</small></span>{% empty %}<span class="muted">Keine Bestellung</span>{% endfor %}</div></td><td class="numeric strong">{{ order.total|euros }}</td><td><a class="icon-button" href="{% url 'edit_order' order.pk %}" title="Bestellung von {{ order.user.name }} {% if order.event.editable %}bearbeiten{% else %}ansehen{% endif %}" aria-label="Bestellung von {{ order.user.name }} {% if order.event.editable %}bearbeiten{% else %}ansehen{% endif %}"><i data-lucide="{% if order.event.editable %}pencil{% else %}eye{% endif %}" aria-hidden="true"></i></a></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Noch keine Bestellungen.</td></tr>{% endfor %}</tbody></table></div>
+<div class="table-scroll"><table><thead><tr><th>Teilnehmer</th><th>Bestellung</th><th class="numeric">Betrag</th><th><span class="sr-only">Aktion</span></th></tr></thead><tbody>{% for order in orders %}<tr><td><a class="person" href="{% url 'user_history' order.user_id %}"><span class="avatar">{{ order.user.name|initials }}</span>{{ order.user.name }}</a></td><td><div class="order-description">{% for item in order.items.all %}<span><strong>{{ item.quantity }}</strong> {{ item.product.name }} <small class="muted">&agrave; {{ item.unit_price_cents|euros }}</small></span>{% empty %}<span class="muted">Keine Bestellung</span>{% endfor %}</div></td><td class="numeric strong">{{ order.total|euros }}</td><td><a class="icon-button" href="{% url 'edit_order' order.pk %}" title="Bestellung von {{ order.user.name }} {% if can_edit %}bearbeiten{% else %}ansehen{% endif %}" aria-label="Bestellung von {{ order.user.name }} {% if can_edit %}bearbeiten{% else %}ansehen{% endif %}"><i data-lucide="{% if can_edit %}pencil{% else %}eye{% endif %}" aria-hidden="true"></i></a></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Noch keine Bestellungen.</td></tr>{% endfor %}</tbody></table></div>
 {% else %}
 <section class="section-space">
 	<div class="table-scroll"><table>

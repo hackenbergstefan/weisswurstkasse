@@ -59,6 +59,37 @@ class AccountingTests(TestCase):
         with self.assertRaises(ValidationError):
             save_order(self.order.pk, {self.product.pk: 2}, self.user)
 
+    def test_admin_can_correct_closed_orders_with_audited_charges(self):
+        admin = User.objects.create_user(
+            "admin@example.org",
+            "admin-test-password",
+            name="Admin",
+            paypal_email="admin@example.org",
+            is_admin=True,
+        )
+        for status in Event.Status.values:
+            with self.subTest(status=status):
+                self.event.status = status
+                self.event.deadline = timezone.now() - timedelta(days=1)
+                self.event.save()
+                with self.assertRaises(ValidationError):
+                    save_order(self.order.pk, {self.product.pk: 2}, self.user)
+                self.order.refresh_from_db()
+                version = self.order.version
+                save_order(self.order.pk, {self.product.pk: 2}, admin, version)
+                with self.assertRaises(ValidationError):
+                    save_order(self.order.pk, {self.product.pk: 3}, admin, version)
+                save_order(self.order.pk, {self.product.pk: 1}, admin)
+                self.assertEqual(self.user.balance, -160)
+                self.event.refresh_from_db()
+                self.assertEqual(self.event.status, status)
+                self.assertEqual(reconcile(), [])
+        self.assertFalse(self.order.charges.exclude(recorded_by=admin).exists())
+        admin.is_active = False
+        admin.save()
+        with self.assertRaises(ValidationError):
+            save_order(self.order.pk, {self.product.pk: 2}, admin)
+
     def test_manual_payment_idempotence_and_reversal(self):
         token = uuid.uuid4()
         entry = manual_payment(self.user, 2000, "CASH", "Breakfast", token)

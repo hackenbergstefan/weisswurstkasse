@@ -1,7 +1,8 @@
 {% load money %}
 <form method="post" action="{% url 'edit_order' order.pk %}" class="order-form" data-fixed-total="{{ fixed_total }}">
   {% csrf_token %}{{ form.version }}{{ form.non_field_errors }}
-  {% if order.event.editable %}
+  {% if can_edit %}
+  {% if not order.event.editable %}<span class="badge locked"><i data-lucide="shield-check" aria-hidden="true"></i>Admin-Korrektur</span>{% endif %}
   <div class="order-items">
   {% for row in rows %}
     <div class="order-item">

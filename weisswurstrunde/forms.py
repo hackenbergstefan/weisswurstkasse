@@ -87,6 +87,21 @@ class ProfileForm(forms.ModelForm):
         return password
 
 
+class AddOrderForm(forms.Form):
+    participant = forms.ModelChoiceField(
+        queryset=User.objects.filter(is_active=True),
+        label="Teilnehmer",
+        empty_label="Teilnehmer ausw\u00e4hlen",
+    )
+
+    def __init__(self, *args, event=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if event is not None:
+            self.fields["participant"].queryset = self.fields["participant"].queryset.exclude(
+                orders__event=event
+            )
+
+
 class QuantitiesForm(forms.Form):
     version = forms.IntegerField(min_value=0, required=False, widget=forms.HiddenInput())
 

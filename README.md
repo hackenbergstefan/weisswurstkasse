@@ -106,15 +106,21 @@ after creation so existing orders and defaults cannot change categories.
   edits post only the difference. Cancelling all quantities restores the charge.
 - Saved item prices are snapshots. A product price change alone never reprices
   an order. Saving an editable order uses current prices for active products.
-- Only `OPEN` events before their deadline can be edited. The deadline check
-  runs server-side regardless of scheduler state. Stale edits are rejected.
+- Regular participants can edit only `OPEN` events before their deadline.
+  Active users with `is_admin=True` can also correct locked or settled orders
+  through the same order form, without reopening the event. The ledger records
+  the price difference and the acting admin. Stale edits are still rejected.
+  In a date's detail view, admins can also select a participant without an order
+  and use **Bestellung hinzufuegen**, including after the deadline. New orders
+  start empty; quantities are entered explicitly and charged when saved.
 - Every active participant gets an order when an event is created. Default orders
   are copied once; editing defaults does not change existing orders. Registration
   also creates empty orders for all existing open events.
 - All authenticated users share permissions: view participants, histories and
   orders, edit anyone's open orders, edit products, and correct manual payments.
   Profile, defaults, manual deposits and PayPal initiation belong to the signed-in
-  user. There is no administrator interface or special role.
+  user. Admin status is assigned through server-side account management only;
+  registration and profile forms cannot grant it. There is no separate admin UI.
 - The group is a **trusted private group**: a manual payment is self-reported and
   immediately credited. Its author is recorded; this is not bank verification.
 - The immutable ledger is authoritative. There is no cached balance to drift.

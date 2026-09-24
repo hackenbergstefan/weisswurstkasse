@@ -87,6 +87,8 @@ class ViewTests(TestCase):
                 "profile-paypal_email": "separate-paypal@example.org",
                 "profile-current_password": "a-long-test-password",
                 "user_id": self.other.pk,
+                "is_admin": True,
+                "profile-is_admin": True,
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -95,6 +97,7 @@ class ViewTests(TestCase):
         self.assertEqual(self.user.name, "New Name")
         self.assertEqual(self.user.paypal_email, "separate-paypal@example.org")
         self.assertEqual(self.other.name, "Thomas")
+        self.assertFalse(self.user.is_admin)
 
     def test_orders_overview_sums_products_across_participants(self):
         self.client.force_login(self.user)
@@ -233,15 +236,116 @@ class ViewTests(TestCase):
             "password": "strong-test-password-123",
             "password_confirm": "strong-test-password-123",
             "invitation": "invite",
+            "is_admin": True,
         }
         response = self.client.post("/register/", data)
         self.assertRedirects(response, "/")
         user = User.objects.get(email="new@example.org")
+        self.assertFalse(user.is_admin)
         self.assertTrue(Order.objects.filter(user=user, event=self.event).exists())
         self.client.logout()
         data["email"] = "NEW@example.org"
         self.assertEqual(self.client.post("/register/", data).status_code, 200)
         self.assertEqual(User.objects.filter(email__iexact="new@example.org").count(), 1)
+
+    def test_admin_can_add_and_edit_orders_after_deadline(self):
+        self.user.is_admin = True
+        self.user.save()
+        self.client.force_login(self.user)
+        for status in Event.Status.values:
+            with self.subTest(status=status):
+                event = Event.objects.create(
+                    date=self.event.date - timedelta(days=10 + Event.Status.values.index(status)),
+                    deadline=timezone.now() - timedelta(days=2),
+                    status=status,
+                )
+                path = reverse("add_order", args=[event.pk])
+                detail = self.client.get("/orders/", {"event": event.pk})
+                self.assertContains(detail, f'action="{path}"')
+                self.assertIn(
+                    self.other, detail.context["add_order_form"].fields["participant"].queryset
+                )
+                self.assertEqual(self.client.get(path).status_code, 405)
+                response = self.client.post(path, {"participant": self.other.pk})
+                order = Order.objects.get(user=self.other, event=event)
+                self.assertRedirects(response, reverse("edit_order", args=[order.pk]))
+                self.assertFalse(order.items.exists())
+                self.assertFalse(order.charges.exists())
+                response = self.client.post(
+                    reverse("edit_order", args=[order.pk]),
+                    {
+                        f"order-{order.pk}-version": 0,
+                        f"order-{order.pk}-product_{self.product.pk}": 2,
+                    },
+                )
+                self.assertRedirects(response, f"/orders/?event={event.pk}")
+                self.client.post(path, {"participant": self.other.pk})
+                self.assertEqual(Order.objects.filter(user=self.other, event=event).count(), 1)
+                self.assertEqual(order.total, 320)
+                self.assertEqual(order.charges.count(), 1)
+                self.assertEqual(order.charges.get().recorded_by, self.user)
+                detail = self.client.get("/orders/", {"event": event.pk})
+                self.assertNotIn(
+                    self.other, detail.context["add_order_form"].fields["participant"].queryset
+                )
+                event.refresh_from_db()
+                self.assertEqual(event.status, status)
+
+    def test_add_order_rejects_non_admin_invalid_participants_and_missing_csrf(self):
+        path = reverse("add_order", args=[self.event.pk])
+        count = Order.objects.count()
+        self.assertEqual(self.client.post(path, {"participant": self.other.pk}).status_code, 302)
+        self.client.force_login(self.user)
+        self.assertNotContains(
+            self.client.get("/orders/", {"event": self.event.pk}), f'action="{path}"'
+        )
+        self.assertEqual(
+            self.client.post(path, {"participant": self.other.pk, "is_admin": True}).status_code,
+            403,
+        )
+        self.user.is_admin = True
+        self.user.save()
+        self.other.is_active = False
+        self.other.save()
+        for participant in ["", "invalid", 999999, self.other.pk]:
+            response = self.client.post(path, {"participant": participant})
+            self.assertRedirects(response, f"/orders/?event={self.event.pk}")
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(path, {"participant": self.user.pk}).status_code, 403)
+        self.assertEqual(Order.objects.count(), count)
+
+    def test_only_admin_can_edit_locked_orders(self):
+        self.event.status = Event.Status.LOCKED
+        self.event.deadline = timezone.now() - timedelta(days=1)
+        self.event.save()
+        path = reverse("edit_order", args=[self.order.pk])
+        field = f"order-{self.order.pk}-product_{self.product.pk}"
+        data = {f"order-{self.order.pk}-version": 0, field: 2, "is_admin": True}
+        self.client.force_login(self.user)
+        self.assertNotContains(self.client.get(path), f'name="{field}"')
+        self.assertEqual(self.client.post(path, data).status_code, 200)
+        self.assertEqual(self.order.total, 0)
+        self.assertFalse(self.order.charges.exists())
+        self.other.is_admin = True
+        self.other.save()
+        own_order = Order.objects.create(user=self.other, event=self.event)
+        self.client.force_login(self.other)
+        response = self.client.get(path)
+        self.assertContains(response, f'name="{field}"')
+        self.assertContains(response, "Admin-Korrektur")
+        self.assertContains(
+            self.client.get("/"), f'name="order-{own_order.pk}-product_{self.product.pk}"'
+        )
+        self.assertContains(
+            self.client.get("/orders/", {"event": self.event.pk}),
+            f'aria-label="Bestellung von {self.user.name} bearbeiten"',
+        )
+        self.assertEqual(self.client.post(path, data).status_code, 302)
+        self.assertEqual(self.user.balance, -320)
+        self.assertEqual(self.order.charges.get().recorded_by, self.other)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, Event.Status.LOCKED)
 
     def test_any_participant_can_edit_any_open_order(self):
         self.client.force_login(self.other)
