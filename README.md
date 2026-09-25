@@ -19,13 +19,15 @@ set -gx DEBUG true
 uv run python manage.py migrate
 uv run python manage.py seed_products
 uv run python manage.py generate_events
+uv run python manage.py seed_demo
 uv run python manage.py runserver 127.0.0.1:8000
 ```
 
 Open http://127.0.0.1:8000/register/ and use the invitation code from your local
 environment. Keep the environment in your terminal while running management
 commands. `seed_products` is optional and adds **example prices**; review them in
-**Sortiment** before real use. There are no seeded accounts or default passwords.
+**Sortiment** before real use. `seed_demo` creates three local demo accounts,
+upcoming orders and cash balances. Their password is `demo`.
 
 Run `uv run python manage.py worker` in another terminal with the same environment
 for automatic event generation and PayPal reconciliation. The worker runs every
@@ -61,13 +63,14 @@ Run `node --test tests/orders.test.cjs` for receipt and quantity-control tests.
 
 ```fish
 docker compose up --build -d
-docker compose exec web /app/.venv/bin/python manage.py seed_products
+docker compose exec web /app/.venv/bin/python manage.py seed_demo
 ```
 
 The web container runs migrations before accepting traffic. The worker starts
-after the web health check succeeds. Both use the named `breakfast-data` volume
-mounted at `/data`. The image runs as UID/GID 10001, not root.
-Do not remove the volume on upgrades. Start only one scheduler per installation.
+after the web health check succeeds. Both services use the workspace-local
+`db.sqlite3` through a bind mount at `/data/db.sqlite3`. Back up that file before
+upgrades. The image runs as UID/GID 10001, not root. Start only one scheduler per
+installation.
 The health endpoint is intentionally public and returns only `ok`.
 
 For tests against plain HTTP on a trusted development machine, use `DEBUG=true`;
@@ -87,21 +90,21 @@ browser preload enrollment for their domain.
 All settings are environment-driven; see `deployment.example` and
 `config/settings.py` for the complete list.
 
-| Setting                | Default / purpose                                               |
-| ---------------------- | --------------------------------------------------------------- |
-| `SECRET_KEY`           | Required; no application fallback                               |
-| `INVITATION_CODE`      | Required to register                                            |
-| `DEBUG`                | `false`                                                         |
-| `DATABASE_URL`         | Local SQLite; Docker uses `sqlite:////data/db.sqlite3`          |
-| `TIME_ZONE`            | `Europe/Berlin`                                                 |
-| `WEISSWURST_WEEKDAY`   | `3`, Thursday for Weisswurst (Monday = 0)                       |
-| `LEBERKAESE_WEEKDAY`   | `4`, Friday for Leberkaese                                      |
-| `DEADLINE_DAYS_BEFORE` | `1`                                                             |
-| `DEADLINE_TIME`        | `18:00`, local timezone                                         |
-| `UPCOMING_WEEKS`       | `8`, minimum 8                                                  |
-| `PUBLIC_BASE_URL`      | Canonical URL used for PayPal redirects                         |
-| `PAYPAL_ENVIRONMENT`   | `sandbox` or `live`                                             |
-| `PAYPAL_API_BASE`      | Optional override; environment-specific official API by default |
+| Setting                | Default / purpose                                                       |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `SECRET_KEY`           | Required; no application fallback                                       |
+| `INVITATION_CODE`      | Required to register                                                    |
+| `DEBUG`                | `false`                                                                 |
+| `DATABASE_URL`         | Local SQLite; Docker uses the bind-mounted `sqlite:////data/db.sqlite3` |
+| `TIME_ZONE`            | `Europe/Berlin`                                                         |
+| `WEISSWURST_WEEKDAY`   | `3`, Thursday for Weisswurst (Monday = 0)                               |
+| `LEBERKAESE_WEEKDAY`   | `4`, Friday for Leberkaese                                              |
+| `DEADLINE_DAYS_BEFORE` | `1`                                                                     |
+| `DEADLINE_TIME`        | `18:00`, local timezone                                                 |
+| `UPCOMING_WEEKS`       | `8`, minimum 8                                                          |
+| `PUBLIC_BASE_URL`      | Canonical URL used for PayPal redirects                                 |
+| `PAYPAL_ENVIRONMENT`   | `sandbox` or `live`                                                     |
+| `PAYPAL_API_BASE`      | Optional override; environment-specific official API by default         |
 
 Configuration changes apply to newly generated events. Existing event deadlines
 are retained. Products and prices are editable shared application data, not
@@ -110,11 +113,11 @@ hard-coded configuration. The ORM is portable to PostgreSQL; install
 PostgreSQL operational testing are separate operator tasks.
 
 Weisswurst and Leberkaese have separate weekly schedules and product selections.
-Leberkaese starts with only Leberkassemmel at EUR 2.00; the migration adds this
-product automatically. Both schedules close at 18:00 on the preceding day by
-default. Saved default quantities apply only to the matching event type, and at
-least eight upcoming dates are generated for each type. Product type is fixed
-after creation so existing orders and defaults cannot change categories.
+Leberkaese starts with only Leberkassemmel at EUR 2.00; `seed_products` adds the
+example assortment explicitly. Both schedules close at 18:00 on the preceding
+day by default. Saved default quantities apply only to the matching event type,
+and at least eight upcoming dates are generated for each type. Product type is
+fixed after creation so existing orders and defaults cannot change categories.
 
 ## Accounting rules
 

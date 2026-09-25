@@ -5,7 +5,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - breakfast-data:/data
+      - ./db.sqlite3:/data/db.sqlite3
     restart: unless-stopped
     healthcheck:
       test:
@@ -24,10 +24,8 @@ services:
     command: ["worker"]
     env_file: .env
     volumes:
-      - breakfast-data:/data
+      - ./db.sqlite3:/data/db.sqlite3
     depends_on:
       web:
         condition: service_healthy
     restart: unless-stopped
-volumes:
-  breakfast-data:

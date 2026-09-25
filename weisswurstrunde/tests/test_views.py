@@ -245,7 +245,9 @@ class ViewTests(TestCase):
 
     def test_leberkaese_forms_and_overview_only_use_matching_products(self):
         self.client.force_login(self.user)
-        product = Product.objects.get(event_type=EventType.LEBERKAESE)
+        product = Product.objects.create(
+            name="Leberkassemmel", event_type=EventType.LEBERKAESE, price_cents=200
+        )
         event = Event.objects.create(
             date=self.event.date,
             deadline=self.event.deadline,
