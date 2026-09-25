@@ -87,6 +87,17 @@ class ProfileForm(forms.ModelForm):
         return password
 
 
+class VacationForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["vacation_start", "vacation_end"]
+        labels = {"vacation_start": "Urlaub von", "vacation_end": "Urlaub bis"}
+        widgets = {
+            "vacation_start": forms.DateInput(attrs={"type": "date"}),
+            "vacation_end": forms.DateInput(attrs={"type": "date"}),
+        }
+
+
 class AddOrderForm(forms.Form):
     participant = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True),

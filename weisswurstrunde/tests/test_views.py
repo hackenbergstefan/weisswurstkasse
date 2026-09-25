@@ -199,6 +199,19 @@ class ViewTests(TestCase):
         self.assertEqual(self.other.name, "Thomas")
         self.assertFalse(self.user.is_admin)
 
+        response = self.client.post(
+            "/profile/",
+            {
+                "action": "vacation",
+                "vacation-vacation_start": "2030-07-01",
+                "vacation-vacation_end": "2030-07-14",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertEqual(str(self.user.vacation_start), "2030-07-01")
+        self.assertEqual(str(self.user.vacation_end), "2030-07-14")
+
     def test_orders_overview_sums_products_across_participants(self):
         self.client.force_login(self.user)
         other_order = Order.objects.create(user=self.other, event=self.event)

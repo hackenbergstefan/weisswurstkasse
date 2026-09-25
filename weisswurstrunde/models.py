@@ -22,6 +22,8 @@ class User(AbstractBaseUser):
     name = models.CharField(max_length=120)
     email = models.EmailField(unique=True)
     paypal_email = models.EmailField()
+    vacation_start = models.DateField(null=True, blank=True)
+    vacation_end = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_admin = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -37,6 +39,17 @@ class User(AbstractBaseUser):
         super().clean()
         self.email = self.email.strip().lower()
         self.paypal_email = self.paypal_email.strip().lower()
+        if (self.vacation_start is None) != (self.vacation_end is None):
+            raise ValidationError("Urlaubsbeginn und Urlaubsende muessen gemeinsam angegeben werden.")
+        if self.vacation_start and self.vacation_end and self.vacation_start > self.vacation_end:
+            raise ValidationError("Das Urlaubsende darf nicht vor dem Urlaubsbeginn liegen.")
+
+    def is_on_vacation(self, event_date):
+        return (
+            self.vacation_start is not None
+            and self.vacation_end is not None
+            and self.vacation_start <= event_date <= self.vacation_end
+        )
 
     @property
     def balance(self):

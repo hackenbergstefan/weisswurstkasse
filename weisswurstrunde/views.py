@@ -31,6 +31,7 @@ from .forms import (
     ProfileForm,
     QuantitiesForm,
     RegisterForm,
+    VacationForm,
 )
 from .models import Event, EventType, LedgerEntry, LoginAttempt, Order, PayPalPayment, Product, User
 
@@ -324,6 +325,7 @@ def participants(request):
 def profile(request):
     profile_form = ProfileForm(instance=request.user, prefix="profile")
     password_form = PasswordChangeForm(request.user, prefix="password")
+    vacation_form = VacationForm(instance=request.user, prefix="vacation")
     products = Product.objects.filter(active=True)
     defaults_form = QuantitiesForm(
         products=products,
@@ -350,6 +352,14 @@ def profile(request):
                 update_session_auth_hash(request, user)
                 messages.success(request, "Passwort geaendert.")
                 return redirect("profile")
+        elif action == "vacation":
+            vacation_form = VacationForm(
+                request.POST, instance=request.user, prefix="vacation"
+            )
+            if vacation_form.is_valid():
+                vacation_form.save()
+                messages.success(request, "Urlaubszeitraum gespeichert.")
+                return redirect("profile")
         elif action == "defaults":
             defaults_form = QuantitiesForm(
                 request.POST, products=products, prefix="defaults", show_event_type=True
@@ -367,6 +377,7 @@ def profile(request):
         {
             "profile_form": profile_form,
             "password_form": password_form,
+            "vacation_form": vacation_form,
             "defaults_form": defaults_form,
         },
     )

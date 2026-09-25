@@ -10,6 +10,7 @@ from weisswurstrunde.models import DefaultItem, Event, EventType, LedgerEntry, O
 from weisswurstrunde.services import (
     generate_events,
     manual_payment,
+    provision_order,
     reconcile,
     reverse_manual,
     save_defaults,
@@ -148,6 +149,26 @@ class AccountingTests(TestCase):
         self.assertGreaterEqual(count, 8)
         save_defaults(self.user, {self.product.pk: 1})
         self.assertEqual(self.user.balance, balance)
+
+    def test_vacation_pauses_defaults_for_inclusive_period(self):
+        save_defaults(self.user, {self.product.pk: 2})
+        self.user.vacation_start = timezone.localdate() + timedelta(days=2)
+        self.user.vacation_end = timezone.localdate() + timedelta(days=4)
+        self.user.save()
+        during = Event.objects.create(
+            date=timezone.localdate() + timedelta(days=4),
+            deadline=timezone.now() + timedelta(days=2),
+        )
+        outside = Event.objects.create(
+            date=timezone.localdate() + timedelta(days=5),
+            deadline=timezone.now() + timedelta(days=4),
+        )
+
+        vacation_order = provision_order(self.user, during)
+        regular_order = provision_order(self.user, outside)
+
+        self.assertEqual(vacation_order.total, 0)
+        self.assertEqual(regular_order.total, 320)
         self.assertEqual(reconcile(), [])
 
     def test_reconciliation_detects_tampered_order(self):

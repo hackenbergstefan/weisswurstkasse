@@ -104,7 +104,7 @@ def add_order(user, event, actor):
 
 def provision_order(user, event):
     order, created = Order.objects.get_or_create(user=user, event=event)
-    if created and event.editable:
+    if created and event.editable and not user.is_on_vacation(event.date):
         quantities = dict(
             user.default_items.filter(
                 product__active=True, product__event_type=event.event_type
