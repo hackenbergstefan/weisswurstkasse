@@ -313,7 +313,7 @@ def add_order(request, event_id):
 def participants(request):
     users = User.objects.annotate(
         current_balance=Coalesce(
-            Sum("ledger__amount_cents", filter=Q(ledger__status="POSTED")), Value(0)
+            Sum("ledger__amount_cents", filter=LedgerEntry.balance_filter("ledger__")), Value(0)
         )
     )
     return render(request, "weisswurstrunde/participants.html", {"participants": users})
@@ -537,7 +537,9 @@ def paypal_webhook(request):
 @require_GET
 def history(request, user_id=None):
     user = get_object_or_404(User, pk=user_id) if user_id else request.user
-    entries = list(user.ledger.select_related("recorded_by", "reversal"))
+    entries = list(
+        user.ledger.filter(LedgerEntry.balance_filter()).select_related("recorded_by", "reversal")
+    )
     running = 0
     for entry in entries:
         running += entry.amount_cents

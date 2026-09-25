@@ -102,8 +102,11 @@ after creation so existing orders and defaults cannot change categories.
 ## Accounting rules
 
 - Monetary amounts are integer cents. Forms parse decimal strings without floats.
-- Saving an order immediately posts its cost, including future events. Its later
-  edits post only the difference. Cancelling all quantities restores the charge.
+- Saving an order records its cost in the ledger immediately. Future orders only
+  affect the account balance from their event date (Europe/Berlin by default).
+  Future-dated ledger entries are excluded until their booking date. Cash balance,
+  participant balances, account history and PayPal debt settlement use this same
+  cutoff. Later edits record only the difference; cancellations reverse the charge.
 - Saved item prices are snapshots. A product price change alone never reprices
   an order. Saving an editable order uses current prices for active products.
 - Regular participants can edit only `OPEN` events before their deadline.

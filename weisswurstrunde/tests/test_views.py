@@ -10,12 +10,13 @@ from weisswurstrunde.models import (
     DefaultItem,
     Event,
     EventType,
+    LedgerEntry,
     Order,
     PayPalPayment,
     Product,
     User,
 )
-from weisswurstrunde.services import save_order
+from weisswurstrunde.services import manual_payment, save_order
 
 
 @override_settings(INVITATION_CODE="invite", ALLOWED_HOSTS=["testserver"])
@@ -61,6 +62,52 @@ class ViewTests(TestCase):
             self.assertIn("no-store", response["Cache-Control"])
             self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
             self.assertIn("https://www.sandbox.paypal.com", response["Content-Security-Policy"])
+
+    def test_dashboard_shows_event_photo_and_distinct_upcoming_icons(self):
+        self.client.force_login(self.user)
+        for offset in [1, 8]:
+            event = Event.objects.create(
+                event_type=EventType.LEBERKAESE,
+                date=timezone.localdate() + timedelta(days=offset),
+                deadline=timezone.now() + timedelta(hours=1),
+            )
+            Order.objects.create(user=self.user, event=event)
+        response = self.client.get("/")
+        self.assertContains(response, 'src="/static/leberkaese.jpg"')
+        self.assertContains(response, "Foto: Kobako")
+        self.assertContains(response, 'data-lucide="utensils"')
+        self.assertContains(response, 'data-lucide="sandwich"')
+        self.event.date = timezone.localdate()
+        self.event.save()
+        self.assertContains(self.client.get("/"), 'src="/static/breakfast.jpg"')
+
+    def test_all_balances_exclude_future_orders(self):
+        self.client.force_login(self.user)
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        deposit = manual_payment(self.user, 2000, "CASH", "Deposit", uuid.uuid4())
+        future_payment = LedgerEntry.objects.create(
+            user=self.user,
+            amount_cents=500,
+            kind=LedgerEntry.Kind.MANUAL,
+            reference="future-payment",
+            created_at=timezone.now() + timedelta(days=1),
+        )
+        for due, expected in [(False, 2000), (True, 1680)]:
+            with self.subTest(due=due):
+                if due:
+                    self.event.date = timezone.localdate()
+                    self.event.save()
+                for path in ["/", "/payments/", "/history/", f"/history/{self.user.pk}/"]:
+                    response = self.client.get(path)
+                    self.assertEqual(response.context["balance"], expected)
+                response = self.client.get("/participants/")
+                participant = response.context["participants"].get(pk=self.user.pk)
+                self.assertEqual(participant.current_balance, expected)
+                entries = self.client.get("/history/").context["entries"].object_list
+                self.assertEqual(len(entries), 2 if due else 1)
+                self.assertNotIn(future_payment.pk, [entry.pk for entry in entries])
+                self.assertIn(deposit.pk, [entry.pk for entry in entries])
+                self.assertEqual(entries[0].running_balance, expected)
 
     def test_profile_and_defaults_only_change_current_user(self):
         self.client.force_login(self.user)
@@ -164,7 +211,7 @@ class ViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(order.items.get().product, product)
-        self.assertEqual(self.user.balance, -400)
+        self.assertEqual(self.user.balance, 0)
         response = self.client.get("/orders/", {"event_type": EventType.LEBERKAESE})
         self.assertEqual(response.context["products"], [product])
         self.assertEqual(response.context["summaries"], [{"event": event, "quantities": [2]}])
@@ -342,7 +389,7 @@ class ViewTests(TestCase):
             f'aria-label="Bestellung von {self.user.name} bearbeiten"',
         )
         self.assertEqual(self.client.post(path, data).status_code, 302)
-        self.assertEqual(self.user.balance, -320)
+        self.assertEqual(self.user.balance, 0)
         self.assertEqual(self.order.charges.get().recorded_by, self.other)
         self.event.refresh_from_db()
         self.assertEqual(self.event.status, Event.Status.LOCKED)
@@ -357,7 +404,7 @@ class ViewTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(self.user.balance, -320)
+        self.assertEqual(self.user.balance, 0)
         self.event.deadline = timezone.now() - timedelta(seconds=1)
         self.event.save()
         response = self.client.post(
@@ -368,7 +415,7 @@ class ViewTests(TestCase):
             },
         )
         self.assertContains(response, "Bestellschluss")
-        self.assertEqual(self.user.balance, -320)
+        self.assertEqual(self.user.balance, 0)
 
     def test_invalid_ids_and_csrf(self):
         self.client.force_login(self.user)

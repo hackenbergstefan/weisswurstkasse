@@ -41,7 +41,10 @@ class User(AbstractBaseUser):
     @property
     def balance(self):
         return (
-            self.ledger.filter(status="POSTED").aggregate(total=Sum("amount_cents"))["total"] or 0
+            self.ledger.filter(LedgerEntry.balance_filter()).aggregate(total=Sum("amount_cents"))[
+                "total"
+            ]
+            or 0
         )
 
     def __str__(self):
@@ -212,6 +215,13 @@ class LedgerEntry(models.Model):
         constraints = [
             models.CheckConstraint(condition=~Q(amount_cents=0), name="nonzero_ledger_entry")
         ]
+
+    @staticmethod
+    def balance_filter(prefix=""):
+        today = timezone.localdate()
+        return Q(**{f"{prefix}status": "POSTED", f"{prefix}created_at__date__lte": today}) & (
+            Q(**{f"{prefix}order__isnull": True}) | Q(**{f"{prefix}order__event__date__lte": today})
+        )
 
     def save(self, *args, **kwargs):
         if not self._state.adding:

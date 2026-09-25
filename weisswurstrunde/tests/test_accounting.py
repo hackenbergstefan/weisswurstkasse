@@ -32,7 +32,34 @@ class AccountingTests(TestCase):
         )
         self.order = Order.objects.create(user=self.user, event=self.event)
 
+    def test_balance_includes_orders_only_from_their_event_date(self):
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.assertEqual(self.user.balance, 0)
+        manual_payment(self.user, 2000, "CASH", "Deposit", uuid.uuid4())
+        self.assertEqual(self.user.balance, 2000)
+        LedgerEntry.objects.create(
+            user=self.user,
+            amount_cents=500,
+            kind=LedgerEntry.Kind.MANUAL,
+            reference="future-payment",
+            created_at=timezone.now() + timedelta(days=2),
+        )
+        self.assertEqual(self.user.balance, 2000)
+        self.event.date = timezone.localdate()
+        self.event.save()
+        self.assertEqual(self.user.balance, 1680)
+        self.event.date -= timedelta(days=1)
+        self.event.save()
+        self.assertEqual(self.user.balance, 1680)
+        self.event.date = timezone.localdate() + timedelta(days=1)
+        self.event.save()
+        save_order(self.order.pk, {self.product.pk: 0}, self.user)
+        self.assertEqual(self.user.balance, 2000)
+        self.assertEqual(reconcile(), [])
+
     def test_prices_snapshots_and_compensating_charges(self):
+        self.event.date = timezone.localdate()
+        self.event.save()
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
         self.assertEqual(self.user.balance, -320)
         self.product.price_cents = 200
@@ -70,6 +97,7 @@ class AccountingTests(TestCase):
         for status in Event.Status.values:
             with self.subTest(status=status):
                 self.event.status = status
+                self.event.date = timezone.localdate() - timedelta(days=1)
                 self.event.deadline = timezone.now() - timedelta(days=1)
                 self.event.save()
                 with self.assertRaises(ValidationError):
@@ -144,7 +172,8 @@ class AccountingTests(TestCase):
             self.assertEqual(target.version, 0)
             self.assertFalse(target.items.exists())
         save_order(order.pk, {product.pk: 2}, self.user)
-        self.assertEqual(self.user.balance, -400)
+        self.assertEqual(self.user.balance, 0)
+        self.assertEqual(order.charges.get().amount_cents, -400)
         save_defaults(self.user, {self.product.pk: 3, product.pk: 1})
         generate_events()
         for generated in self.user.orders.exclude(pk__in=[order.pk, self.order.pk]):
