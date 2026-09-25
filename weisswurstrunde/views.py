@@ -26,6 +26,7 @@ from .forms import (
     CorrectionForm,
     LoginForm,
     ManualPaymentForm,
+    PayoutForm,
     PayPalForm,
     ProductForm,
     ProfileForm,
@@ -33,7 +34,17 @@ from .forms import (
     RegisterForm,
     VacationForm,
 )
-from .models import Event, EventType, LedgerEntry, LoginAttempt, Order, PayPalPayment, Product, User
+from .models import (
+    Event,
+    EventType,
+    LedgerEntry,
+    LoginAttempt,
+    Order,
+    Payout,
+    PayPalPayment,
+    Product,
+    User,
+)
 
 
 def error_message(error):
@@ -252,7 +263,9 @@ def orders(request):
                 "count_options": count_options,
                 "summaries": summaries,
                 "products": products,
-                "summary_columns": len(products) + 1,
+                "summary_columns": len(products) + 2
+                if request.user.is_admin
+                else len(products) + 1,
                 "event_type": event_type,
                 "event_types": event_types,
             },
@@ -281,13 +294,30 @@ def orders(request):
             "totals": totals,
             "grand_total": grand_total,
             "can_edit": event.can_edit(request.user),
-            "add_order_form": AddOrderForm(event=event) if request.user.is_admin else None,
+            "add_order_form": (
+                AddOrderForm(event=event)
+                if request.user.is_admin and event.status != Event.Status.CANCELLED
+                else None
+            ),
             "count": count,
             "count_options": count_options,
             "event_type": event_type,
             "event_types": event_types,
         },
     )
+
+
+@login_required
+@require_POST
+def cancel_event(request, event_id):
+    event = get_object_or_404(Event, pk=event_id)
+    try:
+        services.cancel_event(event.pk, request.user)
+    except ValidationError as error:
+        messages.error(request, error_message(error))
+    else:
+        messages.success(request, "Termin abgesagt.")
+    return redirect(f"{reverse('orders')}?event={event.pk}")
 
 
 @login_required
@@ -353,9 +383,7 @@ def profile(request):
                 messages.success(request, "Passwort geaendert.")
                 return redirect("profile")
         elif action == "vacation":
-            vacation_form = VacationForm(
-                request.POST, instance=request.user, prefix="vacation"
-            )
+            vacation_form = VacationForm(request.POST, instance=request.user, prefix="vacation")
             if vacation_form.is_valid():
                 vacation_form.save()
                 messages.success(request, "Urlaubszeitraum gespeichert.")
@@ -386,6 +414,8 @@ def profile(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def products(request):
+    if not request.user.is_admin:
+        raise PermissionDenied
     product = None
     if request.method == "POST" and request.POST.get("product_id"):
         identifier = forms.IntegerField(min_value=1)
@@ -417,9 +447,51 @@ def products(request):
     )
 
 
+def cashbox_summary():
+    balances = [user.balance for user in User.objects.filter(is_active=True)]
+    payouts = (
+        Payout.objects.filter(status=Payout.Status.COMPLETED).aggregate(total=Sum("amount_cents"))[
+            "total"
+        ]
+        or 0
+    )
+    credit = sum(balance for balance in balances if balance > 0)
+    outstanding = sum(-balance for balance in balances if balance < 0)
+    return {
+        "credit": credit,
+        "outstanding": outstanding,
+        "payouts": payouts,
+        "total": credit - outstanding - payouts,
+    }
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def payments(request):
+    if request.user.is_admin:
+        payout_form = PayoutForm()
+        if request.method == "POST" and request.POST.get("action") == "payout":
+            payout_form = PayoutForm(request.POST)
+            if payout_form.is_valid():
+                try:
+                    payout = services.create_payout(
+                        payout_form.cents,
+                        payout_form.cleaned_data["method"],
+                        payout_form.cleaned_data["recipient"],
+                        payout_form.cleaned_data["note"],
+                        request.user,
+                    )
+                    if payout.status == Payout.Status.FAILED:
+                        payout_form.add_error(
+                            None, "PayPal-Auszahlung konnte nicht angelegt werden."
+                        )
+                    else:
+                        messages.success(request, "Auszahlung angelegt.")
+                        return redirect("payments")
+                except (paypal.PayPalError, ValidationError) as error:
+                    payout_form.add_error(None, error_message(error))
+    else:
+        payout_form = None
     manual_form = ManualPaymentForm(initial={"request_id": uuid.uuid4()}, prefix="manual")
     paypal_form = PayPalForm(
         initial={"request_id": uuid.uuid4(), "purpose": "TOPUP", "amount": "20.00"}, prefix="paypal"
@@ -465,6 +537,13 @@ def payments(request):
             "paypal_enabled": paypal.enabled(),
             "debt_token": uuid.uuid4(),
             "payment_records": request.user.paypal_payments.order_by("-created_at")[:30],
+            "payout_form": payout_form,
+            "payout_records": Payout.objects.select_related("created_by").order_by("-created_at")[
+                :50
+            ]
+            if request.user.is_admin
+            else [],
+            "cashbox": cashbox_summary() if request.user.is_admin else None,
         },
     )
 

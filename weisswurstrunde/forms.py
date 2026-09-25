@@ -113,6 +113,30 @@ class AddOrderForm(forms.Form):
             )
 
 
+class PayoutForm(forms.Form):
+    amount = forms.DecimalField(
+        label="Betrag (EUR)",
+        min_value=Decimal("0.01"),
+        max_value=Decimal("10000.00"),
+        max_digits=7,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={"step": "0.01", "inputmode": "decimal"}),
+    )
+    method = forms.ChoiceField(label="Methode", choices=[("CASH", "Bargeld"), ("PAYPAL", "PayPal")])
+    recipient = forms.EmailField(label="PayPal-E-Mail", required=False)
+    note = forms.CharField(label="Notiz", required=False, max_length=500)
+
+    def clean(self):
+        data = super().clean()
+        if data.get("method") == "PAYPAL" and not data.get("recipient"):
+            self.add_error("recipient", "Für PayPal ist eine Empfänger-E-Mail erforderlich.")
+        return data
+
+    @property
+    def cents(self):
+        return int(self.cleaned_data["amount"] * 100)
+
+
 class QuantitiesForm(forms.Form):
     version = forms.IntegerField(min_value=0, required=False, widget=forms.HiddenInput())
 

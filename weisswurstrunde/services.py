@@ -7,7 +7,18 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import DefaultItem, Event, EventType, LedgerEntry, Order, OrderItem, Product, User
+from . import paypal
+from .models import (
+    DefaultItem,
+    Event,
+    EventType,
+    LedgerEntry,
+    Order,
+    OrderItem,
+    Payout,
+    Product,
+    User,
+)
 
 
 def validate_quantities(quantities):
@@ -122,11 +133,51 @@ def save_defaults(user, quantities):
 def add_order(user, event, actor):
     if not actor.is_active or not actor.is_admin:
         raise PermissionDenied
+    if event.status == Event.Status.CANCELLED:
+        raise ValidationError("Abgesagte Termine koennen keine Bestellungen enthalten.")
     participant = User.objects.select_for_update().get(pk=user.pk)
     if not participant.is_active:
         raise ValidationError("Der Teilnehmer ist nicht aktiv.")
     order, _ = Order.objects.get_or_create(user=participant, event=event)
     return order
+
+
+@transaction.atomic
+def cancel_event(event_id, actor):
+    if not actor.is_active or not actor.is_admin:
+        raise PermissionDenied
+    event = Event.objects.select_for_update().get(pk=event_id)
+    if event.status == Event.Status.SETTLED:
+        raise ValidationError("Abgeschlossene Termine koennen nicht abgesagt werden.")
+    if event.status != Event.Status.CANCELLED:
+        event.status = Event.Status.CANCELLED
+        event.save(update_fields=["status"])
+    return event
+
+
+@transaction.atomic
+def create_payout(amount_cents, method, recipient, note, actor):
+    if not actor.is_active or not actor.is_admin:
+        raise PermissionDenied
+    if method not in Payout.Method.values:
+        raise ValidationError("Unbekannte Auszahlungsmethode.")
+    payout = Payout.objects.create(
+        amount_cents=amount_cents,
+        method=method,
+        recipient=recipient,
+        note=note,
+        created_by=actor,
+        status=Payout.Status.COMPLETED if method == Payout.Method.CASH else Payout.Status.PENDING,
+    )
+    if method == Payout.Method.PAYPAL:
+        try:
+            payout.provider_batch_id = paypal.create_payout(payout)
+        except (paypal.PayPalError, ValidationError):
+            payout.status = Payout.Status.FAILED
+            payout.save(update_fields=["status"])
+            return payout
+    payout.save(update_fields=["provider_batch_id"])
+    return payout
 
 
 def provision_order(user, event):

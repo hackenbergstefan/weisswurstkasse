@@ -2,15 +2,124 @@
 {% load money %}
 {% block title %}Meine Kasse{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Alles auf einem Konto</p><h1>Meine Kasse</h1></div><a class="quiet-link" href="{% url 'history' %}"><i data-lucide="list" aria-hidden="true"></i>Kontoverlauf</a></div>
-<section class="account-band"><div><span class="small-label">{% if balance < 0 %}Offener Betrag{% else %}Dein Guthaben{% endif %}</span><strong class="balance-value {% if balance < 0 %}negative{% endif %}">{{ balance|absolute|euros }}</strong></div>{% if balance < 0 and paypal_enabled %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="paypal"><input type="hidden" name="paypal-purpose" value="DEBT"><input type="hidden" name="paypal-request_id" value="{{ debt_token }}"><button type="submit" class="button primary"><i data-lucide="arrow-up-right" aria-hidden="true"></i>{{ balance|absolute|euros }} mit PayPal bezahlen</button></form>{% endif %}</section>
-<div class="settings-grid">
-<section><h2><i data-lucide="wallet" aria-hidden="true"></i>Guthaben aufladen</h2>{% if not paypal_enabled %}<div class="message info">PayPal ist noch nicht eingerichtet. Manuelle Zahlungen sind verf&uuml;gbar.</div>{% endif %}<form method="post" class="stack" id="topup-form">{% csrf_token %}<input type="hidden" name="action" value="paypal"><fieldset {% if not paypal_enabled %}disabled{% endif %}><div class="amount-presets" role="group" aria-label="Aufladebetrag"><button type="button" data-amount="10">10 &euro;</button><button type="button" data-amount="20" aria-pressed="true">20 &euro;</button><button type="button" data-amount="50">50 &euro;</button></div>{% include 'weisswurstrunde/fields.html' with form=paypal_form %}<button type="submit" class="button paypal-button"><i data-lucide="arrow-up-right" aria-hidden="true"></i>Mit PayPal aufladen</button></fieldset></form></section>
-<section><h2><i data-lucide="banknote" aria-hidden="true"></i>Manuelle Zahlung</h2><form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="manual">{% include 'weisswurstrunde/fields.html' with form=manual_form %}<button class="button secondary" type="submit"><i data-lucide="check" aria-hidden="true"></i>Zahlung verbuchen</button></form></section>
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Alles auf einem Konto</p>
+        <h1>Meine Kasse</h1>
+    </div><a class="quiet-link" href="{% url 'history' %}"><i data-lucide="list" aria-hidden="true"></i>Kontoverlauf</a>
 </div>
-<section class="section-space"><h2>PayPal-Vorg&auml;nge</h2><div class="table-scroll"><table><thead><tr><th>Datum</th><th>Status</th><th class="numeric">Betrag</th><th>Abgleich</th></tr></thead><tbody>{% for payment in payment_records %}<tr><td>{{ payment.created_at|date:'d.m.Y H:i' }}<small class="block muted">{{ payment.get_purpose_display }}</small></td><td><span class="badge {% if payment.status == 'FAILED' %}due{% endif %}">{{ payment.get_status_display }}</span></td><td class="numeric">{{ payment.amount_cents|euros }}</td><td>
-{% if payment.order_id %}<form method="post" action="{% url 'paypal_sync' payment.pk %}">{% csrf_token %}<button type="submit" class="button secondary small"><i data-lucide="refresh-cw" aria-hidden="true"></i>{% if payment.status == 'CREATED' or payment.status == 'APPROVED' %}Abschlie&szlig;en &amp; pr&uuml;fen{% else %}Pr&uuml;fen{% endif %}</button></form>{% endif %}
-{% if payment.status == 'CREATED' %}<form method="post" action="{% url 'paypal_retry' payment.pk %}">{% csrf_token %}<button type="submit" class="button secondary small"><i data-lucide="arrow-up-right" aria-hidden="true"></i>{% if payment.order_id %}Zu PayPal{% else %}Erneut versuchen{% endif %}</button></form>{% endif %}
-{% if payment.status == 'CREATED' or payment.status == 'APPROVED' %}<form method="post" action="{% url 'paypal_close' payment.pk %}">{% csrf_token %}<button type="submit" class="icon-button" title="Vorgang schlie&szlig;en" aria-label="Vorgang schlie&szlig;en"><i data-lucide="x" aria-hidden="true"></i></button></form>{% endif %}
-</td></tr>{% empty %}<tr><td colspan="4" class="empty-state">Noch keine PayPal-Zahlungen.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="account-band">
+    <div><span class="small-label">{% if balance < 0 %}Offener Betrag{% else %}Dein Guthaben{% endif %}</span><strong
+                    class="balance-value {% if balance < 0 %}negative{% endif %}">{{ balance|absolute|euros }}</strong>
+    </div>{% if balance < 0 and paypal_enabled %}<form method="post">{% csrf_token %}<input type="hidden" name="action"
+            value="paypal"><input type="hidden" name="paypal-purpose" value="DEBT"><input type="hidden"
+            name="paypal-request_id" value="{{ debt_token }}"><button type="submit" class="button primary"><i
+                data-lucide="arrow-up-right" aria-hidden="true"></i>{{ balance|absolute|euros }} mit PayPal
+            bezahlen</button></form>{% endif %}
+</section>
+<div class="settings-grid">
+    <section>
+        <h2><i data-lucide="wallet" aria-hidden="true"></i>Guthaben aufladen</h2>{% if not paypal_enabled %}<div
+            class="message info">PayPal ist noch nicht eingerichtet. Manuelle Zahlungen sind verf&uuml;gbar.</div>{%
+        endif %}<form method="post" class="stack" id="topup-form">{% csrf_token %}<input type="hidden" name="action"
+                value="paypal">
+            <fieldset {% if not paypal_enabled %}disabled{% endif %}>
+                <div class="amount-presets" role="group" aria-label="Aufladebetrag"><button type="button"
+                        data-amount="10">10 &euro;</button><button type="button" data-amount="20" aria-pressed="true">20
+                        &euro;</button><button type="button" data-amount="50">50 &euro;</button></div>{% include
+                'weisswurstrunde/fields.html' with form=paypal_form %}<button type="submit"
+                    class="button paypal-button"><i data-lucide="arrow-up-right" aria-hidden="true"></i>Mit PayPal
+                    aufladen</button>
+            </fieldset>
+        </form>
+    </section>
+    <section>
+        <h2><i data-lucide="banknote" aria-hidden="true"></i>Manuelle Zahlung</h2>
+        <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="manual">{% include
+            'weisswurstrunde/fields.html' with form=manual_form %}<button class="button secondary" type="submit"><i
+                    data-lucide="check" aria-hidden="true"></i>Zahlung verbuchen</button></form>
+    </section>
+</div>
+{% if request.user.is_admin %}<section class="section-space">
+    <h2>Bilanz der Kasse</h2>
+    <div class="account-summary">
+        <div><span class="small-label">Guthaben</span><strong>{{ cashbox.credit|euros }}</strong></div>
+        <div><span class="small-label">Ausstehend</span><strong>{{ cashbox.outstanding|euros }}</strong></div>
+        <div><span class="small-label">Auszahlungen</span><strong>{{ cashbox.payouts|euros }}</strong></div>
+        <div class="summary-total"><span class="small-label">Summe</span><strong>{{ cashbox.total|euros }}</strong>
+        </div>
+    </div>
+    <h2 class="subsection-title">Auszahlung anlegen</h2>
+    <form method="post" class="stack payout-form"><input type="hidden" name="action" value="payout">{% csrf_token %}{%
+        include 'weisswurstrunde/fields.html' with form=payout_form %}<button class="button primary" type="submit"><i
+                data-lucide="arrow-down-to-line" aria-hidden="true"></i>Auszahlung anlegen</button></form>
+</section>
+<section class="section-space">
+    <h2>Auszahlungen</h2>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Methode</th>
+                    <th>Status</th>
+                    <th>Empfänger / Notiz</th>
+                    <th class="numeric">Betrag</th>
+                </tr>
+            </thead>
+            <tbody>{% for payout in payout_records %}<tr>
+                    <td>{{ payout.created_at|date:'d.m.Y H:i' }}<small class="block muted">{{ payout.created_by.name
+                            }}</small></td>
+                    <td>{{ payout.get_method_display }}</td>
+                    <td>{{ payout.get_status_display }}</td>
+                    <td>{{ payout.recipient }}{% if payout.note %}<small class="block muted">{{ payout.note }}</small>{%
+                        endif %}</td>
+                    <td class="numeric">{{ payout.amount_cents|euros }}</td>
+                </tr>{% empty %}<tr>
+                    <td colspan="5" class="empty-state">Noch keine Auszahlungen.</td>
+                </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>{% endif %}
+<section class="section-space">
+    <h2>PayPal-Vorg&auml;nge</h2>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Status</th>
+                    <th class="numeric">Betrag</th>
+                    <th>Abgleich</th>
+                </tr>
+            </thead>
+            <tbody>{% for payment in payment_records %}<tr>
+                    <td>{{ payment.created_at|date:'d.m.Y H:i' }}<small class="block muted">{{
+                            payment.get_purpose_display }}</small></td>
+                    <td><span class="badge {% if payment.status == 'FAILED' %}due{% endif %}">{{
+                            payment.get_status_display }}</span></td>
+                    <td class="numeric">{{ payment.amount_cents|euros }}</td>
+                    <td>
+                        {% if payment.order_id %}<form method="post" action="{% url 'paypal_sync' payment.pk %}">{%
+                            csrf_token %}<button type="submit" class="button secondary small"><i
+                                    data-lucide="refresh-cw" aria-hidden="true"></i>{% if payment.status == 'CREATED' or
+                                payment.status == 'APPROVED' %}Abschlie&szlig;en &amp; pr&uuml;fen{% else
+                                %}Pr&uuml;fen{% endif %}</button></form>{% endif %}
+                        {% if payment.status == 'CREATED' %}<form method="post"
+                            action="{% url 'paypal_retry' payment.pk %}">{% csrf_token %}<button type="submit"
+                                class="button secondary small"><i data-lucide="arrow-up-right" aria-hidden="true"></i>{%
+                                if payment.order_id %}Zu PayPal{% else %}Erneut versuchen{% endif %}</button></form>{%
+                        endif %}
+                        {% if payment.status == 'CREATED' or payment.status == 'APPROVED' %}<form method="post"
+                            action="{% url 'paypal_close' payment.pk %}">{% csrf_token %}<button type="submit"
+                                class="icon-button" title="Vorgang schlie&szlig;en"
+                                aria-label="Vorgang schlie&szlig;en"><i data-lucide="x" aria-hidden="true"></i></button>
+                        </form>{% endif %}
+                    </td>
+                </tr>{% empty %}<tr>
+                    <td colspan="4" class="empty-state">Noch keine PayPal-Zahlungen.</td>
+                </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}

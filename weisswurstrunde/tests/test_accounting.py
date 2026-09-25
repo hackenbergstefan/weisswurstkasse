@@ -1,13 +1,23 @@
 import uuid
 from datetime import timedelta
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from weisswurstrunde.models import DefaultItem, Event, EventType, LedgerEntry, Order, Product, User
+from weisswurstrunde.models import (
+    DefaultItem,
+    Event,
+    EventType,
+    LedgerEntry,
+    Order,
+    Payout,
+    Product,
+    User,
+)
 from weisswurstrunde.services import (
+    create_payout,
     generate_events,
     manual_payment,
     provision_order,
@@ -95,7 +105,7 @@ class AccountingTests(TestCase):
             paypal_email="admin@example.org",
             is_admin=True,
         )
-        for status in Event.Status.values:
+        for status in [Event.Status.OPEN, Event.Status.LOCKED, Event.Status.SETTLED]:
             with self.subTest(status=status):
                 self.event.status = status
                 self.event.date = timezone.localdate() - timedelta(days=1)
@@ -134,6 +144,20 @@ class AccountingTests(TestCase):
             entry.delete()
         with self.assertRaises(ValidationError):
             LedgerEntry.objects.all().update(amount_cents=0)
+
+    def test_cash_payout_is_recorded_and_requires_admin(self):
+        with self.assertRaises(PermissionDenied):
+            create_payout(500, Payout.Method.CASH, "", "", self.user)
+        admin = User.objects.create_user(
+            "payout-admin@example.org",
+            "admin-test-password",
+            name="Payout Admin",
+            paypal_email="admin-paypal@example.org",
+            is_admin=True,
+        )
+        payout = create_payout(500, Payout.Method.CASH, "", "Kasse", admin)
+        self.assertEqual(payout.status, Payout.Status.COMPLETED)
+        self.assertEqual(Payout.objects.get().amount_cents, 500)
 
     def test_defaults_are_independent_and_generation_idempotent(self):
         save_defaults(self.user, {self.product.pk: 2})

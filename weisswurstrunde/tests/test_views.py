@@ -12,6 +12,7 @@ from weisswurstrunde.models import (
     EventType,
     LedgerEntry,
     Order,
+    Payout,
     PayPalPayment,
     Product,
     User,
@@ -47,7 +48,6 @@ class ViewTests(TestCase):
             "/orders/",
             "/participants/",
             "/profile/",
-            "/products/",
             "/payments/",
             "/history/",
             f"/history/{self.other.pk}/",
@@ -67,6 +67,7 @@ class ViewTests(TestCase):
             self.assertNotContains(response, "theme-select")
             self.assertNotContains(response, "themes.js")
             self.assertNotContains(response, "themes.css")
+        self.assertEqual(self.client.get("/products/").status_code, 403)
 
     def test_single_design_is_available_without_login(self):
         for path in ["/login/", "/register/"]:
@@ -367,7 +368,7 @@ class ViewTests(TestCase):
         self.user.is_admin = True
         self.user.save()
         self.client.force_login(self.user)
-        for status in Event.Status.values:
+        for status in [Event.Status.LOCKED, Event.Status.SETTLED]:
             with self.subTest(status=status):
                 event = Event.objects.create(
                     date=self.event.date - timedelta(days=10 + Event.Status.values.index(status)),
@@ -405,6 +406,34 @@ class ViewTests(TestCase):
                 )
                 event.refresh_from_db()
                 self.assertEqual(event.status, status)
+
+    def test_admin_can_cancel_event_and_cancelled_events_are_not_editable(self):
+        self.user.is_admin = True
+        self.user.save()
+        self.client.force_login(self.user)
+        path = reverse("cancel_event", args=[self.event.pk])
+        self.assertEqual(self.client.post(path).status_code, 302)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, Event.Status.CANCELLED)
+        self.assertFalse(self.event.can_edit(self.user))
+        self.assertNotContains(
+            self.client.get("/orders/", {"event": self.event.pk}),
+            "Termin absagen",
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse("add_order", args=[self.event.pk]), {"participant": self.other.pk}
+            ).status_code,
+            302,
+        )
+        self.assertFalse(Order.objects.filter(user=self.other, event=self.event).exists())
+
+    def test_only_admin_can_cancel_event(self):
+        path = reverse("cancel_event", args=[self.event.pk])
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post(path).status_code, 403)
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, Event.Status.OPEN)
 
     def test_add_order_rejects_non_admin_invalid_participants_and_missing_csrf(self):
         path = reverse("add_order", args=[self.event.pk])
@@ -516,6 +545,8 @@ class ViewTests(TestCase):
 
     def test_price_changes_do_not_reprice_existing_orders(self):
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.user.is_admin = True
+        self.user.save()
         self.client.force_login(self.user)
         response = self.client.post(
             "/products/",
@@ -532,6 +563,41 @@ class ViewTests(TestCase):
         self.assertEqual(self.order.total, 320)
         self.product.refresh_from_db()
         self.assertEqual(self.product.event_type, EventType.WEISSWURST)
+
+    def test_admin_can_create_cash_payout_and_see_cashbox(self):
+        self.user.is_admin = True
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/payments/",
+            {"action": "payout", "amount": "5.00", "method": "CASH", "note": "Kasse"},
+        )
+        self.assertRedirects(response, "/payments/")
+        payout = Payout.objects.get()
+        self.assertEqual(payout.status, Payout.Status.COMPLETED)
+        self.assertEqual(payout.amount_cents, 500)
+        self.assertContains(self.client.get("/payments/"), "Auszahlungen")
+
+    @patch("weisswurstrunde.paypal.create_payout", return_value="BATCH-1")
+    def test_admin_can_start_paypal_payout(self, create_payout):
+        self.user.is_admin = True
+        self.user.save()
+        self.client.force_login(self.user)
+        response = self.client.post(
+            "/payments/",
+            {
+                "action": "payout",
+                "amount": "5.00",
+                "method": "PAYPAL",
+                "recipient": "recipient@example.org",
+                "note": "PayPal",
+            },
+        )
+        self.assertRedirects(response, "/payments/")
+        payout = Payout.objects.get()
+        self.assertEqual(payout.status, Payout.Status.PENDING)
+        self.assertEqual(payout.provider_batch_id, "BATCH-1")
+        create_payout.assert_called_once()
 
     @patch("weisswurstrunde.views.paypal.verify_webhook", return_value=False)
     def test_invalid_webhook_rejected(self, verify):

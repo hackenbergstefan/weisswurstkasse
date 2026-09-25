@@ -40,7 +40,9 @@ class User(AbstractBaseUser):
         self.email = self.email.strip().lower()
         self.paypal_email = self.paypal_email.strip().lower()
         if (self.vacation_start is None) != (self.vacation_end is None):
-            raise ValidationError("Urlaubsbeginn und Urlaubsende muessen gemeinsam angegeben werden.")
+            raise ValidationError(
+                "Urlaubsbeginn und Urlaubsende muessen gemeinsam angegeben werden."
+            )
         if self.vacation_start and self.vacation_end and self.vacation_start > self.vacation_end:
             raise ValidationError("Das Urlaubsende darf nicht vor dem Urlaubsbeginn liegen.")
 
@@ -91,6 +93,7 @@ class Event(models.Model):
         OPEN = "OPEN", "Offen"
         LOCKED = "LOCKED", "Bestellschluss"
         SETTLED = "SETTLED", "Abgeschlossen"
+        CANCELLED = "CANCELLED", "Abgesagt"
 
     event_type = models.CharField(max_length=12, choices=EventType, default=EventType.WEISSWURST)
     date = models.DateField()
@@ -108,7 +111,11 @@ class Event(models.Model):
         return self.status == self.Status.OPEN and timezone.now() < self.deadline
 
     def can_edit(self, user):
-        return user.is_active and (self.editable or user.is_admin)
+        return (
+            self.status != self.Status.CANCELLED
+            and user.is_active
+            and (self.editable or user.is_admin)
+        )
 
 
 class Order(models.Model):
@@ -180,6 +187,26 @@ class PayPalPayment(models.Model):
     approval_url = models.URLField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class Payout(models.Model):
+    class Method(models.TextChoices):
+        CASH = "CASH", "Bargeld"
+        PAYPAL = "PAYPAL", "PayPal"
+
+    class Status(models.TextChoices):
+        COMPLETED = "COMPLETED", "Abgeschlossen"
+        PENDING = "PENDING", "Ausstehend"
+        FAILED = "FAILED", "Fehlgeschlagen"
+
+    amount_cents = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    method = models.CharField(max_length=8, choices=Method)
+    status = models.CharField(max_length=9, choices=Status, default=Status.COMPLETED)
+    recipient = models.EmailField(blank=True)
+    note = models.CharField(max_length=500, blank=True)
+    provider_batch_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="payouts")
+    created_at = models.DateTimeField(default=timezone.now)
 
 
 class ImmutableLedgerQuerySet(models.QuerySet):

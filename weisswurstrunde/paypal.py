@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
 
-from .models import LedgerEntry, PayPalPayment, User
+from .models import LedgerEntry, Payout, PayPalPayment, User
 
 
 class PayPalError(Exception):
@@ -146,6 +146,35 @@ def create_payment(user, amount_cents, purpose, request_id):
         payment.approval_url = approval
         payment.save(update_fields=["order_id", "approval_url", "updated_at"])
     return payment
+
+
+def create_payout(payout):
+    if payout.method != Payout.Method.PAYPAL:
+        raise PayPalError("Ungültige Auszahlungsmethode.")
+    data = PayPalClient().request(
+        "POST",
+        "/v1/payments/payouts",
+        {
+            "sender_batch_header": {
+                "sender_batch_id": f"payout-{payout.pk}",
+                "email_subject": "Auszahlung aus der Weisswurstrunde",
+            },
+            "items": [
+                {
+                    "recipient_type": "EMAIL",
+                    "amount": {"value": money(payout.amount_cents), "currency": "EUR"},
+                    "receiver": payout.recipient,
+                    "note": payout.note or "Auszahlung aus der Weisswurstrunde",
+                    "sender_item_id": str(payout.pk),
+                }
+            ],
+        },
+        request_id=f"payout-{payout.pk}",
+    )
+    batch_id = data.get("batch_header", {}).get("payout_batch_id")
+    if not batch_id:
+        raise PayPalError("PayPal hat keine Auszahlungs-ID geliefert.")
+    return batch_id
 
 
 def validate_order(payment, data):
