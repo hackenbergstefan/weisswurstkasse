@@ -177,7 +177,7 @@ class ViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(DefaultItem.objects.get(user=self.user).quantity, 2)
-        self.assertEqual(self.order.total, 0)
+        self.assertEqual(self.order.total, 320)
         response = self.client.post(
             "/profile/",
             {

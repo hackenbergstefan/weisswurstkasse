@@ -81,6 +81,33 @@ def save_defaults(user, quantities):
     products = Product.objects.filter(pk__in=quantities, active=True)
     if products.count() != len(quantities):
         raise ValidationError("Unbekanntes oder inaktives Produkt.")
+    previous_defaults = dict(user.default_items.values_list("product_id", "quantity"))
+    previous_product_types = dict(
+        Product.objects.filter(pk__in=previous_defaults).values_list("pk", "event_type")
+    )
+    upcoming_orders = (
+        user.orders.filter(event__date__gte=timezone.localdate())
+        .filter(event__status=Event.Status.OPEN, event__deadline__gt=timezone.now())
+        .select_related("event")
+        .prefetch_related("items")
+    )
+    for order in upcoming_orders:
+        old_quantities = {
+            product_id: quantity
+            for product_id, quantity in previous_defaults.items()
+            if previous_product_types.get(product_id) == order.event.event_type
+        }
+        current_quantities = {
+            item.product_id: item.quantity for item in order.items.all() if item.quantity
+        }
+        if current_quantities != old_quantities:
+            continue
+        new_quantities = {
+            product.pk: quantities[product.pk]
+            for product in products
+            if product.event_type == order.event.event_type
+        }
+        save_order(order.pk, new_quantities, user)
     user.default_items.all().delete()
     DefaultItem.objects.bulk_create(
         [

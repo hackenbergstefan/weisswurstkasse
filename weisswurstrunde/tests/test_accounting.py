@@ -150,6 +150,26 @@ class AccountingTests(TestCase):
         save_defaults(self.user, {self.product.pk: 1})
         self.assertEqual(self.user.balance, balance)
 
+    def test_changing_defaults_updates_untouched_upcoming_orders(self):
+        save_defaults(self.user, {self.product.pk: 1})
+        self.assertEqual(self.order.total, 160)
+        save_order(self.order.pk, {self.product.pk: 3}, self.user)
+        later_event = Event.objects.create(
+            date=timezone.localdate() + timedelta(days=4),
+            deadline=timezone.now() + timedelta(days=3),
+        )
+        later_order = provision_order(self.user, later_event)
+        self.assertEqual(later_order.total, 160)
+
+        save_defaults(self.user, {self.product.pk: 2})
+
+        self.order.refresh_from_db()
+        later_order.refresh_from_db()
+        self.assertEqual(self.order.total, 480)
+        self.assertEqual(later_order.total, 320)
+        self.assertEqual(self.user.default_items.get().quantity, 2)
+        self.assertEqual(reconcile(), [])
+
     def test_vacation_pauses_defaults_for_inclusive_period(self):
         save_defaults(self.user, {self.product.pk: 2})
         self.user.vacation_start = timezone.localdate() + timedelta(days=2)
