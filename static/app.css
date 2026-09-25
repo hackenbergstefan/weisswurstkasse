@@ -4,15 +4,21 @@
   font-weight: 200 800;
   font-display: swap;
 }
+@font-face {
+  font-family: Bangers;
+  src: url("fonts/bangers.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
 :root {
-  --ink: #25342d;
-  --muted: #707a74;
-  --green: #235740;
-  --green-light: #edf3ed;
-  --paper: #fafbf9;
-  --line: #dfe5de;
+  --ink: #103b53;
+  --muted: #60777c;
+  --green: #06568a;
+  --green-light: #e5edf0;
+  --paper: #f6f7f1;
+  --line: #dbe3df;
   --white: #fff;
-  --gold: #eebc61;
+  --gold: #ffd15b;
   --danger: #a84432;
   --radius: 6px;
   font-family: Manrope, "Trebuchet MS", sans-serif;
@@ -26,6 +32,8 @@
 }
 body {
   margin: 0;
+  background-image: radial-gradient(#244d3910 0.55px, transparent 0.55px);
+  background-size: 6px 6px;
   overflow-wrap: anywhere;
   line-height: 1.6;
   font-size: 14px;
@@ -88,14 +96,15 @@ p {
   margin: 0;
 }
 h1 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: Bangers, "Trebuchet MS", sans-serif;
   font-weight: 400;
   font-size: 38px;
   line-height: 1.2;
 }
 h2 {
-  font-size: 20px;
-  font-weight: 700;
+  font-family: Bangers, "Trebuchet MS", sans-serif;
+  font-size: 28px;
+  font-weight: 400;
   line-height: 1.4;
 }
 h2 svg {
@@ -112,7 +121,7 @@ small {
   color: var(--muted);
 }
 .positive {
-  color: var(--green);
+  color: #39795a;
 }
 .negative {
   color: var(--danger);
@@ -153,23 +162,41 @@ small {
   top: 8px;
 }
 .site-header {
-  height: 100px;
+  min-height: 82px;
   padding: 0 max(32px, calc((100% - 1180px) / 2));
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 28px;
-  background: var(--white);
-  border-bottom: 1px solid var(--line);
+  background: var(--green);
+  color: var(--white);
+  border-bottom: 3px solid #104b70;
 }
 .brand {
   display: flex;
   gap: 12px;
   align-items: center;
-  font-family: Georgia, serif;
-  font-size: 24px;
+  font-family: Bangers, "Trebuchet MS", sans-serif;
+  font-size: 29px;
   line-height: 1.2;
   white-space: nowrap;
+}
+.brand-mascot {
+  width: 53px;
+  height: 65px;
+  object-fit: contain;
+}
+.brand-name {
+  transform: rotate(-3deg);
+  line-height: 0.95;
+}
+.brand-name small {
+  display: block;
+  font: 12px Manrope, sans-serif;
+  margin-bottom: 3px;
+}
+.site-header a:hover {
+  color: var(--gold);
 }
 .brand-mark {
   width: 42px;
@@ -211,8 +238,8 @@ small {
   width: 17px;
 }
 .main-nav a[aria-current] {
-  color: var(--green);
-  border-color: var(--green);
+  color: var(--gold);
+  border-color: var(--gold);
 }
 .profile-link {
   display: flex;
@@ -290,7 +317,7 @@ small {
   margin-bottom: 7px;
 }
 .event-heading h2 {
-  font-family: Georgia, serif;
+  font-family: Bangers, sans-serif;
   font-size: 28px;
   font-weight: 400;
   line-height: 1.25;
@@ -435,12 +462,14 @@ small {
   width: 16px;
 }
 .primary {
-  background: var(--green);
-  color: var(--white);
+  background: var(--gold);
+  color: var(--ink);
+  border-color: #b29238;
+  box-shadow: 0 3px 0 #dcc17b;
 }
 .primary:hover {
-  background: #19432f;
-  color: var(--white);
+  background: #ffda79;
+  color: var(--ink);
 }
 .secondary {
   background: var(--white);
@@ -472,7 +501,7 @@ small {
   height: 16px;
 }
 .section-title {
-  font-size: 16px;
+  font-size: 28px;
   margin: 33px 0 15px;
   display: flex;
   gap: 10px;
@@ -515,7 +544,7 @@ small {
   display: block;
   font-size: 23px;
   font-weight: 500;
-  font-family: Georgia, serif;
+  font-family: Bangers, sans-serif;
 }
 .date-block span {
   font-size: 10px;
@@ -661,15 +690,24 @@ small {
   line-height: 1.5;
 }
 .site-footer {
-  max-width: 1116px;
+  max-width: none;
   margin: 48px auto 0;
-  padding: 25px 0 28px;
-  border-top: 1px solid var(--line);
+  padding: 25px max(32px, calc((100% - 1180px) / 2)) 28px;
+  border-top: 3px solid #104b70;
+  background: var(--green);
   font-size: 10px;
-  color: var(--muted);
+  color: var(--white);
   display: flex;
   justify-content: space-between;
   gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.site-footer > strong {
+  font: 22px Bangers, sans-serif;
+}
+.site-footer a:hover {
+  color: var(--gold);
 }
 .site-footer > div {
   display: flex;
@@ -769,7 +807,16 @@ input[type="checkbox"] {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  background: radial-gradient(ellipse at top, #eff4ed, transparent 68%);
+  background: transparent;
+  flex-wrap: wrap;
+}
+.auth-page .messages {
+  width: 100%;
+}
+.auth-mascot {
+  display: block;
+  object-fit: contain;
+  margin: 0 auto 20px;
 }
 .auth-content {
   width: 430px;
@@ -807,7 +854,7 @@ input[type="checkbox"] {
 }
 .settings-grid h2 {
   margin-bottom: 26px;
-  font-size: 19px;
+  font-size: 27px;
 }
 .narrow-section {
   max-width: 650px;
@@ -1041,6 +1088,103 @@ tr:nth-child(3n) .avatar {
   color: var(--green);
   text-decoration: underline;
 }
+.stammtisch-hero {
+  height: 420px;
+  position: relative;
+  overflow: hidden;
+  background: #9bd9e8;
+}
+.stammtisch-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hero-copy {
+  position: relative;
+  width: min(1180px, calc(100% - 56px));
+  margin: auto;
+  padding: 35px 0 0 49%;
+  color: #063955;
+}
+.hero-copy h1 {
+  font: 90px/0.94 Bangers, sans-serif;
+  transform: rotate(-4deg);
+  text-shadow: 2px 3px 0 #d8f3ed;
+  margin-bottom: 15px;
+  overflow-wrap: normal;
+}
+.hero-greeting {
+  font: 38px/1.2 Bangers, sans-serif;
+  transform: rotate(-4deg);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  padding: 5px 0;
+}
+.hero-brush {
+  display: inline-block;
+  color: white;
+  background: var(--green);
+  font: 31px/1.2 Bangers, sans-serif;
+  padding: 7px 21px 9px;
+  transform: rotate(-3deg);
+  clip-path: polygon(1% 4%,97% 0,100% 14%,97% 24%,100% 55%,97% 65%,100% 92%,3% 100%,0 81%,2% 69%,0 20%);
+}
+.hero-signoff { font-size: 12px; font-weight: 800; margin: 19px 0 0 10px; }
+.stammtisch-account { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 0; border-bottom: 1px solid var(--line); }
+.stammtisch-account a { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.stammtisch-account strong { font-size: 16px; white-space: nowrap; }
+.stammtisch-dashboard .next-event { padding: 23px 0 0; background: transparent; border: 0; }
+.stammtisch-dashboard .event-heading { padding-bottom: 19px; border-bottom: 1px solid var(--line); }
+.stammtisch-dashboard .event-heading h2 { font: 29px/1.1 Bangers, sans-serif; }
+.stammtisch-dashboard .event-heading h2 span { display: inline; margin-left: 12px; }
+.stammtisch-dashboard .event-heading .eyebrow { font-size: 9px; }
+.stammtisch-dashboard .event-heading .deadline { margin-top: 8px; }
+.stammtisch-dashboard .breakfast-photo { width: 100px; height: 65px; object-fit: contain; }
+.stammtisch-dashboard .future-event { background: transparent; border: 0; border-top: 1px solid #b9cdd0; border-radius: 0; }
+.stammtisch-dashboard .future-body { padding: 12px 0 26px; }
+.stammtisch-dashboard .future-description > strong { display: inline-flex; align-items: center; gap: 6px; }
+.stammtisch-dashboard .event-type-icon { width: 28px; height: 28px; object-fit: contain; margin-right: 2px; vertical-align: middle; }
+.stammtisch-links { display: grid; grid-template-columns: 1fr 1fr 180px; gap: 32px; border-top: 2px solid var(--green); margin-top: 30px; padding-top: 24px; }
+.stammtisch-links .balance-section { background: transparent; border: 0; padding: 0; }
+.stammtisch-links .section-kicker { margin-bottom: 10px; }
+.stammtisch-links .balance-value { font-family: Bangers, sans-serif; font-weight: 400; margin-bottom: 16px; }
+.stammtisch-links .sidebar-links { margin: 0; }
+.stammtisch-links .sidebar-note { text-align: center; padding: 20px 0; }
+.stammtisch-links .sidebar-note p { font: 28px/1.1 Bangers, sans-serif; color: var(--green); }
+.order-layout { display: grid; grid-template-columns: minmax(0, 1fr) 286px; align-items: start; gap: 28px; }
+.order-layout > .errorlist, .order-layout > .badge { grid-column: 1 / -1; }
+.menu-products { min-width: 0; }
+.menu-heading { margin: 0 0 18px; }
+.menu-heading h2 { font-size: 32px; }
+.menu-heading p { color: var(--muted); font-size: 11px; }
+.product-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; border: 0; }
+.product-card { display: block; border: 1px solid #dfdfd3; border-radius: 7px; overflow: hidden; background: #fffdf7; box-shadow: 0 3px 0 #e7e6dd; padding: 0; min-width: 0; }
+.product-photo { height: 140px; overflow: hidden; background: #ab7a45; display: grid; place-items: center; }
+.product-photo img { width: 100%; height: 140px; object-fit: contain; }
+.product-photo > svg { width: 68px; height: 68px; color: var(--green); }
+.product-card-body { padding: 12px; }
+.product-card label { display: block; min-height: 44px; line-height: 1.5; font-size: 13px; }
+.product-price { display: block; color: var(--green); margin: 11px 0; font-size: 16px; }
+.product-card .quantity-control { width: 100%; grid-template-columns: 34px minmax(0, 1fr) 34px; background: #eff0e9; }
+.product-card .quantity-control input { width: 100%; }
+.photo-credit { font-size: 9px; color: var(--muted); margin: 15px 0 0; }
+.photo-credit a { text-decoration: underline; }
+.order-receipt { position: relative; margin-top: 25px; padding: 30px 22px 22px; border: 1px solid #d9ceae; border-radius: 6px; background: #fffdf1; box-shadow: 3px 4px 0 #e4e2d8; }
+.order-receipt::before { content: ""; position: absolute; inset: 7px; border: 1px dashed #cebf96; border-radius: 3px; pointer-events: none; }
+.receipt-beer { display: block; object-fit: contain; margin: -54px auto 8px; position: relative; transform: rotate(-12deg); }
+.order-receipt h2 { text-align: center; font-size: 30px; }
+.receipt-who { text-align: center; color: var(--muted); font-size: 10px; margin: 4px 0 19px; }
+.receipt-lines { min-height: 100px; }
+.receipt-line { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; font-size: 11px; padding: 7px 0; }
+.receipt-line > span:last-child { flex-shrink: 0; font-weight: 700; }
+.order-receipt .order-bottom { padding-top: 15px; margin-top: 10px; border-top: 2px dashed #c6bda5; font: 27px Bangers, sans-serif; }
+.order-receipt .order-total { font: 27px Bangers, sans-serif; }
+.receipt-submit { margin-top: 17px; font: 23px/1.2 Bangers, sans-serif; min-height: 48px; }
+.receipt-note { font-size: 10px; text-align: center; color: #697466; margin-top: 16px; }
+[hidden] { display: none !important; }
 @media (prefers-reduced-motion: no-preference) {
   .page-heading,
   .dashboard-grid,
@@ -1070,7 +1214,7 @@ tr:nth-child(3n) .avatar {
     padding-right: max(32px, calc((100% - 1180px) / 2));
   }
   .site-footer {
-    max-width: 1180px;
+    max-width: none;
   }
   .dashboard-grid {
     grid-template-columns: minmax(0, 1fr) 306px;
@@ -1105,8 +1249,8 @@ tr:nth-child(3n) .avatar {
     font-size: 31px;
   }
   .site-footer {
-    margin-left: 32px;
-    margin-right: 32px;
+    margin-left: 0;
+    margin-right: 0;
   }
   .breakfast-photo {
     width: 130px;
@@ -1133,9 +1277,9 @@ tr:nth-child(3n) .avatar {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 66px;
+    height: calc(66px + env(safe-area-inset-bottom));
     z-index: 20;
-    background: var(--white);
+    background: var(--green);
     border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
     display: grid;
@@ -1158,8 +1302,8 @@ tr:nth-child(3n) .avatar {
     height: 19px;
   }
   .main-nav a[aria-current] {
-    border-color: var(--green);
-    background: #f4f7f2;
+    border-color: var(--gold);
+    background: #104b70;
   }
   .container {
     padding: 0 20px;
@@ -1244,8 +1388,9 @@ tr:nth-child(3n) .avatar {
   }
   .site-footer {
     flex-direction: column;
-    margin: 30px 20px 0;
-    padding-top: 20px;
+    margin: 30px 0 0;
+    padding: 20px;
+    align-items: flex-start;
     font-size: 9px;
   }
   .site-footer > div {
@@ -1269,7 +1414,7 @@ tr:nth-child(3n) .avatar {
     gap: 35px;
   }
   .settings-grid h2 {
-    font-size: 18px;
+    font-size: 26px;
   }
   .filter-form {
     width: 100%;
@@ -1350,4 +1495,53 @@ tr:nth-child(3n) .avatar {
   .order-item label {
     font-size: 13px;
   }
+}
+.order-editor { border-top: 2px solid var(--green); padding-top: 25px; }
+@media (max-width: 1000px) {
+  .hero-copy { padding-left: 48%; padding-top: 45px; }
+  .hero-copy h1 { font-size: 75px; }
+  .hero-greeting { font-size: 29px; }
+  .hero-brush { font-size: 25px; }
+  .order-layout { grid-template-columns: minmax(0, 1fr) 250px; gap: 20px; }
+  .product-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .order-receipt { padding-inline: 17px; }
+  .stammtisch-links { grid-template-columns: 1fr 1fr; }
+  .stammtisch-links .sidebar-note { display: none; }
+}
+@media (max-width: 760px) {
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .site-header { height: 72px; min-height: 72px; padding: 0 16px; gap: 10px; }
+  .brand { font-size: 24px; gap: 7px; }
+  .brand-mascot { width: 43px; height: 53px; }
+  .brand-name small { font-size: 10px; }
+  .stammtisch-hero { height: 316px; }
+  .stammtisch-scene { width: 100%; left: 0; }
+  .hero-copy { width: calc(100% - 28px); padding: 20px 0 0 41%; }
+  .hero-copy h1 { font-size: 54px; margin-bottom: 10px; }
+  .hero-greeting { font-size: 24px; }
+  .hero-brush { font-size: 19px; padding: 6px 10px; }
+  .hero-signoff { font-size: 9px; margin: 10px 0 0; max-width: 165px; }
+  .stammtisch-account { flex-wrap: wrap; gap: 10px; padding: 13px 0; }
+  .stammtisch-account a { font-size: 10px; }
+  .stammtisch-account a:last-child { justify-content: flex-end; width: 100%; }
+  .stammtisch-account strong { font-size: 14px; }
+  .stammtisch-dashboard .event-heading h2 span { display: block; margin: 4px 0 0; }
+  .order-layout { grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .product-cards { gap: 10px; }
+  .product-card { padding: 0; }
+  .product-card-body { padding: 11px; }
+  .product-card label { font-size: 13px; }
+  .product-photo, .product-photo img { height: 132px; }
+  .order-receipt { margin: 6px 0 0; padding: 30px 25px 23px; }
+  .order-receipt .order-total { font-size: 27px; }
+  .receipt-submit { font-size: 23px; }
+  .receipt-line { font-size: 12px; }
+  .stammtisch-links { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .stammtisch-dashboard .future-body { padding: 15px 0 26px; }
+  .stammtisch-dashboard .future-event summary { padding-inline: 0; }
+}
+@media (max-width: 370px) {
+  .product-card .quantity-control { grid-template-columns: 30px minmax(0, 1fr) 30px; }
+  .brand { font-size: 22px; }
+  .hero-copy h1 { font-size: 47px; }
 }

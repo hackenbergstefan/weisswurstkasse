@@ -163,7 +163,7 @@ def edit_order(request, order_id):
                 )
                 messages.success(
                     request,
-                    f"Bestellung fuer {order.user.name} am {order.event.date:%d.%m.} gespeichert.",
+                    f"Sauber! Bestellung ist raus. {order.user.name}, {order.event.date:%d.%m.}",
                 )
                 if request.user.is_admin:
                     return redirect(f"{reverse('orders')}?event={order.event_id}")

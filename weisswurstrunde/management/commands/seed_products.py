@@ -11,9 +11,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         for name, unit, price, event_type in [
             ("Wei\u00dfwurst", "St\u00fcck", 160, EventType.WEISSWURST),
-            ("Brezel", "St\u00fcck", 90, EventType.WEISSWURST),
-            ("S\u00fc\u00dfer Senf", "Portion", 30, EventType.WEISSWURST),
-            ("Wei\u00dfbier", "Flasche", 220, EventType.WEISSWURST),
+            ("Breze", "St\u00fcck", 90, EventType.WEISSWURST),
             ("Leberkassemmel", "St\u00fcck", 200, EventType.LEBERKAESE),
         ]:
             Product.objects.get_or_create(

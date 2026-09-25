@@ -62,6 +62,21 @@ class ViewTests(TestCase):
             self.assertIn("no-store", response["Cache-Control"])
             self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
             self.assertIn("https://www.sandbox.paypal.com", response["Content-Security-Policy"])
+            self.assertContains(response, "Die Wei&szlig;wurstmaschine")
+            self.assertContains(response, 'src="/static/mascot.png"')
+            self.assertNotContains(response, "theme-select")
+            self.assertNotContains(response, "themes.js")
+            self.assertNotContains(response, "themes.css")
+
+    def test_single_design_is_available_without_login(self):
+        for path in ["/login/", "/register/"]:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertContains(response, 'content="#06568a"')
+                self.assertContains(response, 'src="/static/mascot.png"')
+                self.assertNotContains(response, "theme-select")
+                self.assertNotContains(response, "data-theme")
+                self.assertNotIn("unsafe-inline", response["Content-Security-Policy"])
 
     def test_dashboard_shows_event_photo_and_distinct_upcoming_icons(self):
         self.client.force_login(self.user)
@@ -73,13 +88,51 @@ class ViewTests(TestCase):
             )
             Order.objects.create(user=self.user, event=event)
         response = self.client.get("/")
-        self.assertContains(response, 'src="/static/leberkaese.jpg"')
-        self.assertContains(response, "Foto: Kobako")
-        self.assertContains(response, 'data-lucide="utensils"')
-        self.assertContains(response, 'data-lucide="sandwich"')
+        self.assertContains(response, 'src="/static/leberkas.png"')
+        self.assertNotContains(response, "Foto: Kobako")
+        self.assertContains(response, 'src="/static/weisswurst-breze.png"')
+        self.assertContains(response, 'src="/static/leberkas.png"')
         self.event.date = timezone.localdate()
         self.event.save()
-        self.assertContains(self.client.get("/"), 'src="/static/breakfast.jpg"')
+        self.assertContains(self.client.get("/"), 'src="/static/weisswurst-breze.png"')
+
+    def test_product_cards_preserve_order_fields_and_server_total(self):
+        self.client.force_login(self.user)
+        Product.objects.create(name="Breze", price_cents=90)
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        response = self.client.get("/")
+        self.assertContains(response, 'src="/static/banner-augsburg.png"')
+        self.assertContains(response, 'src="/static/weisswurst.png"')
+        self.assertContains(response, 'src="/static/breze.png"')
+        self.assertNotContains(response, 'src="/static/breakfast.jpg"')
+        self.assertNotContains(response, 'src="/static/leberkaese.jpg"')
+        self.assertContains(response, 'src="/static/beer.png"')
+        self.assertContains(response, "Dein Wirtshaustisch")
+        self.assertContains(response, "Passt. Bestellen!")
+        self.assertContains(response, 'class="order-item product-card"')
+        self.assertNotContains(response, "data-product-filters")
+        self.assertNotContains(response, "data-category")
+        self.assertContains(
+            response, f'name="order-{self.order.pk}-product_{self.product.pk}"', count=1
+        )
+        self.assertContains(
+            response, f'data-receipt-for="id_order-{self.order.pk}-product_{self.product.pk}"'
+        )
+        self.assertContains(response, f'name="order-{self.order.pk}-version"')
+        self.assertEqual(response.context["upcoming"][0]["display_total"], 320)
+
+    def test_retired_products_are_not_orderable_but_existing_charges_remain(self):
+        self.client.force_login(self.user)
+        mustard = Product.objects.create(name="S\u00fc\u00dfer Senf", price_cents=30)
+        beer = Product.objects.create(name="Wei\u00dfbier", price_cents=220)
+        save_order(self.order.pk, {self.product.pk: 2, mustard.pk: 1, beer.pk: 1}, self.user)
+        Product.objects.filter(pk__in=[mustard.pk, beer.pk]).update(active=False)
+        response = self.client.get("/")
+        for product in [mustard, beer]:
+            self.assertNotContains(response, f'name="order-{self.order.pk}-product_{product.pk}"')
+        self.assertEqual(response.context["upcoming"][0]["fixed_total"], 250)
+        self.assertEqual(response.context["upcoming"][0]["display_total"], 570)
+        self.assertEqual(self.order.items.count(), 3)
 
     def test_all_balances_exclude_future_orders(self):
         self.client.force_login(self.user)
@@ -151,7 +204,7 @@ class ViewTests(TestCase):
         other_order = Order.objects.create(user=self.other, event=self.event)
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
         save_order(other_order.pk, {self.product.pk: 3}, self.other)
-        unused = Product.objects.create(name="Brezel", price_cents=90)
+        unused = Product.objects.create(name="Breze", price_cents=90)
         self.product.active = False
         self.product.save()
         response = self.client.get("/orders/")

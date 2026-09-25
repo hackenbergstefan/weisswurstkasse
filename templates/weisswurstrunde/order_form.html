@@ -1,19 +1,41 @@
-{% load money %}
-<form method="post" action="{% url 'edit_order' order.pk %}" class="order-form" data-fixed-total="{{ fixed_total }}">
+{% load money static %}
+<form method="post" action="{% url 'edit_order' order.pk %}" class="order-form {% if can_edit %}order-layout{% endif %}" data-fixed-total="{{ fixed_total }}">
   {% csrf_token %}{{ form.version }}{{ form.non_field_errors }}
   {% if can_edit %}
   {% if not order.event.editable %}<span class="badge locked"><i data-lucide="shield-check" aria-hidden="true"></i>Admin-Korrektur</span>{% endif %}
-  <div class="order-items">
+  <section class="menu-products">
+  <div class="menu-heading"><h2>{% if order.event.event_type == 'LEBERKAESE' %}Leberk&auml;s-Liebe{% else %}Wurst-Spezialit&auml;ten{% endif %}</h2><p>{% if order.event.event_type == 'LEBERKAESE' %}Warm. Herzhaft. Sauguad.{% else %}A gscheide Grundlage f&uuml;r deine Runde.{% endif %}</p></div>
+  <div class="order-items product-cards">
   {% for row in rows %}
-    <div class="order-item">
-      <div><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span class="item-unit">{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>
+    {% with name=row.product.name|lower %}
+    <div class="order-item product-card">
+      <div class="product-photo">
+        {% if 'brez' in name and 'wurst' in name %}<img src="{% static 'weisswurst-breze.png' %}" alt="Wei&szlig;wurst mit Breze" width="759" height="755" loading="lazy">
+        {% elif 'brez' in name %}<img src="{% static 'breze.png' %}" alt="Breze" width="759" height="755" loading="lazy">
+        {% elif 'leber' in name %}<img src="{% static 'leberkas.png' %}" alt="Leberk&auml;se in einer Semmel" width="759" height="755" loading="lazy">
+        {% elif 'wurst' in name %}<img src="{% static 'weisswurst.png' %}" alt="Wei&szlig;wurst" width="759" height="755" loading="lazy">
+        {% else %}<i data-lucide="utensils" aria-hidden="true"></i>{% endif %}
+      </div>
+      <div class="product-card-body"><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span class="item-unit">pro {{ row.product.unit }}</span><strong class="product-price">{{ row.product.price_cents|euros }}</strong>
       <div class="quantity-control"><button type="button" class="step-button" data-step="-1" aria-label="{{ row.product.name }} verringern" title="Verringern"><i data-lucide="minus" aria-hidden="true"></i></button>{{ row.field }}<button type="button" class="step-button" data-step="1" aria-label="{{ row.product.name }} erh&ouml;hen" title="Erh&ouml;hen"><i data-lucide="plus" aria-hidden="true"></i></button></div>
       {{ row.field.errors }}
+      </div>
     </div>
+    {% endwith %}
   {% empty %}<p class="empty-state">Noch keine Produkte. <a href="{% url 'products' %}">Sortiment anlegen</a></p>{% endfor %}
-  {% for item in inactive %}<div class="order-item muted"><span>{{ item.product.name }} <small>inaktiv</small></span><span>{{ item.quantity }} &times; {{ item.unit_price_cents|euros }}</span></div>{% endfor %}
   </div>
-  <div class="order-bottom"><div><span class="small-label">Gesamt</span><output class="order-total" aria-live="polite">{{ display_total|euros }}</output></div><button class="button primary" type="submit"><i data-lucide="check" aria-hidden="true"></i>Bestellung speichern</button></div>
+  </section>
+  <aside class="order-receipt" aria-label="Bestellzettel">
+    <img class="receipt-beer" src="{% static 'beer.png' %}" alt="" width="58" height="65">
+    <h2>Dein Wirtshaustisch</h2><p class="receipt-who">{{ order.user.name }} &middot; {{ order.event.date|date:'D, d.m.' }}</p>
+    <div class="receipt-lines">
+    {% for row in rows %}<div class="receipt-line" data-receipt-for="{{ row.field.id_for_label }}" {% if not row.field.value or row.field.value == '0' %}hidden{% endif %}><span><span data-receipt-quantity>{{ row.field.value|default:0 }}</span> &times; {{ row.product.name }}</span><span data-receipt-total>{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>{% endfor %}
+    {% for item in inactive %}<div class="receipt-line muted"><span>{{ item.quantity }} &times; {{ item.product.name }} <small>inaktiv</small></span><span>{{ item.unit_price_cents|euros }} / {{ item.product.unit }}</span></div>{% endfor %}
+    </div>
+    <div class="order-bottom"><span>Summa</span><output class="order-total" aria-live="polite">{{ display_total|euros }}</output></div>
+    <button class="button primary full receipt-submit" type="submit">Passt. Bestellen!<i data-lucide="arrow-right" aria-hidden="true"></i></button>
+    <p class="receipt-note">{% if order.event.editable %}Bis zum Bestellschluss kannst du deine Runde noch &auml;ndern.{% else %}Admin-Korrektur &middot; &Auml;nderungen werden protokolliert.{% endif %}</p>
+  </aside>
   {% else %}
     {% for item in order.items.all %}<div class="order-item"><span>{{ item.product.name }}</span><span>{{ item.quantity }} &times; {{ item.unit_price_cents|euros }}</span></div>{% empty %}<p class="muted">Keine Bestellung</p>{% endfor %}
     <div class="order-bottom"><span class="badge locked"><i data-lucide="lock-keyhole" aria-hidden="true"></i>Bestellschluss vorbei</span><strong>{{ display_total|euros }}</strong></div>

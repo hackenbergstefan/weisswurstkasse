@@ -4,9 +4,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#235740">
-  <title>{% block title %}Wei&szlig;wurstrunde{% endblock %} &middot; Die Fr&uuml;hst&uuml;ckskasse</title>
-  <link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
+  <meta name="theme-color" content="#06568a">
+  <title>{% block title %}Meine Runde{% endblock %} &middot; Die Wei&szlig;wurstmaschine</title>
+  <link rel="icon" href="{% static 'mascot.png' %}" type="image/png">
   <link rel="stylesheet" href="{% static 'app.css' %}">
   <script defer src="{% static 'vendor/lucide.min.js' %}"></script>
   <script defer src="{% static 'app.js' %}"></script>
@@ -14,7 +14,7 @@
 <body>
   <a class="skip-link" href="#main">Zum Inhalt</a>
   <header class="site-header">
-    <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark"><i data-lucide="utensils" aria-hidden="true"></i></span><span>Wei&szlig;wurstrunde<span class="brand-sub">Gute Runde. Gute Rechnung.</span></span></a>
+    <a class="brand" href="{% url 'dashboard' %}"><img class="brand-mascot" src="{% static 'mascot.png' %}" alt="" width="53" height="65"><span class="brand-name"><small>Die</small>Wei&szlig;wurstmaschine.</span></a>
     {% if user.is_authenticated %}
     <nav class="main-nav" aria-label="Hauptnavigation">
       <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}><i data-lucide="house" aria-hidden="true"></i><span>Meine Runde</span></a>
@@ -25,10 +25,11 @@
     <a class="profile-link" href="{% url 'profile' %}" title="Mein Profil"><i data-lucide="circle-user-round" aria-hidden="true"></i><span>{{ user.name }}</span></a>
     {% endif %}
   </header>
+  {% block scene %}{% endblock %}
   <main id="main" class="container {% block main_class %}{% endblock %}">
     {% if messages %}<div class="messages" aria-live="polite">{% for message in messages %}<div class="message {{ message.tags }}"><i data-lucide="{% if message.tags == 'error' %}circle-alert{% else %}circle-check{% endif %}" aria-hidden="true"></i><span>{{ message }}</span></div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="site-footer"><span>Wei&szlig;wurstrunde <span class="footer-dot">&middot;</span> Zusammen schmeckt's besser.</span>{% if user.is_authenticated %}<div><a href="{% url 'products' %}">Sortiment</a><a href="{% url 'history' %}">Kontoverlauf</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button" type="submit">Abmelden</button></form></div>{% endif %}</footer>
+  <footer class="site-footer"><strong>Augsburg. Brezn. Beste Gesellschaft.</strong>{% if user.is_authenticated %}<div><a href="{% url 'products' %}">Sortiment</a><a href="{% url 'history' %}">Kontoverlauf</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button" type="submit">Abmelden</button></form></div>{% endif %}</footer>
 </body>
 </html>

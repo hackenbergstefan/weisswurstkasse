@@ -7,15 +7,31 @@ const currency = new Intl.NumberFormat("de-DE", {
 
 document.querySelectorAll(".order-form").forEach((form) => {
   const inputs = [...form.querySelectorAll("input[data-price]")];
+  const receiptLines = [...form.querySelectorAll("[data-receipt-for]")];
+  const quantity = (input) => Math.min(100, Math.max(0, Number(input.value) || 0));
   const update = () => {
     const total = inputs.reduce(
       (sum, input) =>
         sum +
-        Math.max(0, Number(input.value) || 0) * Number(input.dataset.price),
+        quantity(input) * Number(input.dataset.price),
       Number(form.dataset.fixedTotal),
     );
-    const output = form.querySelector("output");
+    const output = form.querySelector(".order-total");
     if (output) output.textContent = currency.format(total / 100);
+    inputs.forEach((input) => {
+      const amount = quantity(input);
+      const line = receiptLines.find((item) => item.dataset.receiptFor === input.id);
+      if (line) {
+        line.hidden = amount === 0;
+        line.querySelector("[data-receipt-quantity]").textContent = amount;
+        line.querySelector("[data-receipt-total]").textContent = currency.format(
+          amount * Number(input.dataset.price) / 100,
+        );
+      }
+      const control = input.closest(".quantity-control");
+      control.querySelector('[data-step="-1"]').disabled = amount === 0;
+      control.querySelector('[data-step="1"]').disabled = amount === 100;
+    });
   };
   inputs.forEach((input) => input.addEventListener("input", update));
   form.querySelectorAll("[data-step]").forEach((button) => {
@@ -28,6 +44,7 @@ document.querySelectorAll(".order-form").forEach((form) => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
   });
+  update();
 });
 
 document.querySelectorAll("[data-amount]").forEach((button) => {

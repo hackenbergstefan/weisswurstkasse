@@ -31,6 +31,23 @@ Run `uv run python manage.py worker` in another terminal with the same environme
 for automatic event generation and PayPal reconciliation. The worker runs every
 15 minutes; `worker --once` performs one cycle.
 
+## Design
+
+The application uses a single **Die Weisswurstmaschine** design: blue and yellow,
+Bangers display type, a local Augsburg illustration, product cards and a live
+order receipt. There is no theme selector or browser-stored design preference.
+The reference is `design-previews/weisswurstmaschine.html`; its illustration
+source remains in `design-previews/stammtisch-art.js`. Production uses exported
+PNG assets, so the artwork also works without JavaScript and under the existing
+Content Security Policy. Fonts, images and license details are in `static/ASSETS.md`.
+
+All active products for the current event are shown directly, without category
+filters. The initial assortment contains Weisswurst, Breze and Leberkassemmel;
+the former mustard and beer products are inactive, preserving existing orders
+and ledger entries. Without JavaScript, quantity inputs and normal form
+submissions remain available; the server is authoritative for prices and permissions.
+Run `node --test tests/orders.test.cjs` for receipt and quantity-control tests.
+
 ## Docker deployment
 
 1. Create an untracked `.env` using `deployment.example` as the reference. Fill in
