@@ -1,9 +1,10 @@
 import uuid
 from datetime import timedelta
 
+from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from weisswurstrunde.models import (
@@ -96,6 +97,41 @@ class AccountingTests(TestCase):
         self.event.save()
         with self.assertRaises(ValidationError):
             save_order(self.order.pk, {self.product.pk: 2}, self.user)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_closing_event_sends_participant_and_admin_order_emails_once(self):
+        admin = User.objects.create_user(
+            "admin@example.org",
+            "admin-test-password",
+            name="Admin",
+            paypal_email="admin-paypal@example.org",
+            is_admin=True,
+        )
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.event.deadline = timezone.now() - timedelta(seconds=1)
+        self.event.save(update_fields=["deadline"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            generate_events()
+
+        self.event.refresh_from_db()
+        self.assertEqual(self.event.status, Event.Status.LOCKED)
+        self.assertEqual(len(mail.outbox), 2)
+        participant_message = next(
+            message for message in mail.outbox if message.to == [self.user.email]
+        )
+        admin_message = next(message for message in mail.outbox if message.to == [admin.email])
+        self.assertIn("2 x Weisswurst", participant_message.body)
+        self.assertIn("Kontostand zum Termin: -3,20 €", participant_message.body)
+        self.assertIn("Stefan", admin_message.body)
+        self.assertIn("2 x Weisswurst", admin_message.body)
+        self.assertIn("Gesamtmenge", admin_message.alternatives[0][0])
+        self.assertIn("2 Weisswurst", admin_message.alternatives[0][0])
+
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            generate_events()
+        self.assertEqual(mail.outbox, [])
 
     def test_admin_can_correct_closed_orders_with_audited_charges(self):
         admin = User.objects.create_user(

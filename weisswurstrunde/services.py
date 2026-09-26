@@ -3,8 +3,10 @@ from datetime import datetime, time, timedelta
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
+from django.template.loader import render_to_string
 from django.utils import timezone
 
 from . import paypal
@@ -213,6 +215,62 @@ def provision_order(user, event):
     return order
 
 
+def event_balance(user, event):
+    return (
+        user.ledger.filter(
+            Q(status="POSTED"),
+            Q(created_at__date__lte=event.date),
+            Q(order__isnull=True) | Q(order__event__date__lte=event.date),
+        ).aggregate(total=Sum("amount_cents"))["total"]
+        or 0
+    )
+
+
+def send_order_close_emails(event_id):
+    event = Event.objects.get(pk=event_id)
+    orders = list(
+        Order.objects.filter(event=event)
+        .select_related("user")
+        .prefetch_related("items__product")
+        .order_by("user__name")
+    )
+    for order in orders:
+        context = {"event": event, "order": order, "balance": event_balance(order.user, event)}
+        message = EmailMultiAlternatives(
+            subject=f"Deine Bestellung: {event.get_event_type_display()} am {event.date:%d.%m.%Y}",
+            body=render_to_string("weisswurstrunde/email/order_closed.txt", context),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[order.user.email],
+        )
+        message.attach_alternative(
+            render_to_string("weisswurstrunde/email/order_closed.html", context), "text/html"
+        )
+        message.send()
+
+    admin_emails = list(
+        User.objects.filter(is_active=True, is_admin=True).values_list("email", flat=True)
+    )
+    if admin_emails:
+        product_totals = {}
+        for order in orders:
+            for item in order.items.all():
+                total = product_totals.setdefault(
+                    item.product_id, {"name": item.product.name, "quantity": 0}
+                )
+                total["quantity"] += item.quantity
+        context = {"event": event, "orders": orders, "product_totals": product_totals.values()}
+        message = EmailMultiAlternatives(
+            subject=f"Gesamtbestellung: {event.get_event_type_display()} am {event.date:%d.%m.%Y}",
+            body=render_to_string("weisswurstrunde/email/orders_closed.txt", context),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=admin_emails,
+        )
+        message.attach_alternative(
+            render_to_string("weisswurstrunde/email/orders_closed.html", context), "text/html"
+        )
+        message.send()
+
+
 @transaction.atomic
 def generate_events(today=None):
     today = today or timezone.localdate()
@@ -238,9 +296,14 @@ def generate_events(today=None):
             if event.editable:
                 for user in active_users:
                     provision_order(user, event)
-    Event.objects.filter(status=Event.Status.OPEN, deadline__lte=timezone.now()).update(
-        status=Event.Status.LOCKED
+    closing_event_ids = list(
+        Event.objects.filter(status=Event.Status.OPEN, deadline__lte=timezone.now()).values_list(
+            "pk", flat=True
+        )
     )
+    Event.objects.filter(pk__in=closing_event_ids).update(status=Event.Status.LOCKED)
+    for event_id in closing_event_ids:
+        transaction.on_commit(lambda event_id=event_id: send_order_close_emails(event_id))
     Event.objects.filter(date__lt=today).exclude(status=Event.Status.SETTLED).update(
         status=Event.Status.SETTLED
     )

@@ -1,0 +1,77 @@
+{% load money %}<!doctype html>
+<html lang="de">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gesamtbestellung</title>
+    <style>
+        @media only screen and (max-width: 600px) {
+            .email-shell { width: 100% !important; }
+            .email-padding { padding-left: 20px !important; padding-right: 20px !important; }
+            .order-table { font-size: 13px !important; }
+            .order-table th, .order-table td { padding-left: 9px !important; padding-right: 9px !important; }
+        }
+    </style>
+</head>
+
+<body style="margin: 0; padding: 0; background-color: #f6f7f1; color: #103b53; font-family: Trebuchet MS, Arial, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #f6f7f1;">
+        <tr>
+            <td align="center" style="padding: 32px 16px;">
+                <table role="presentation" class="email-shell" width="700" cellspacing="0" cellpadding="0" border="0" style="width: 700px; max-width: 700px; background-color: #ffffff; border: 1px solid #dbe3df;">
+                    <tr>
+                        <td class="email-padding" style="padding: 24px 40px; background-color: #06568a; border-bottom: 4px solid #ffd15b; color: #ffffff;">
+                            <p style="margin: 0 0 5px; color: #ffd15b; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">Die</p>
+                            <p style="margin: 0; color: #ffffff; font-family: Trebuchet MS, Arial, sans-serif; font-size: 26px; font-weight: 700; line-height: 1.1;">Wei&szlig;wurstmaschine.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="email-padding" style="padding: 36px 40px 24px;">
+                            <p style="margin: 0 0 12px; color: #60777c; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">Bestellschluss erreicht</p>
+                            <h1 style="margin: 0 0 10px; color: #103b53; font-family: Trebuchet MS, Arial, sans-serif; font-size: 30px; line-height: 1.15;">Gesamtbestellung</h1>
+                            <p style="margin: 0; color: #103b53; font-size: 16px; line-height: 1.6;"><strong>{{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }}</strong><br><span style="color: #60777c;">{{ orders|length }} Teilnehmer</span></p>
+                        </td>
+                    </tr>
+                    {% if product_totals %}<tr>
+                        <td class="email-padding" style="padding: 0 40px 24px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color: #ffd15b;">
+                                <tr>
+                                    <td style="padding: 16px 18px; color: #103b53;">
+                                        <p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">Gesamtmenge</p>
+                                        <p style="margin: 0; font-size: 25px; font-weight: 700; line-height: 1.35;">{% for total in product_totals %}{{ total.quantity }} {{ total.name }}{% if not forloop.last %} &middot; {% endif %}{% endfor %}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>{% endif %}
+                    <tr>
+                        <td class="email-padding" style="padding: 0 40px 36px;">
+                            <table role="presentation" class="order-table" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse: collapse; border: 1px solid #dbe3df; color: #103b53; font-size: 14px;">
+                                <thead>
+                                    <tr style="background-color: #e5edf0;">
+                                        <th align="left" style="padding: 12px 14px; color: #103b53; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;">Teilnehmer</th>
+                                        <th align="left" style="padding: 12px 14px; color: #103b53; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;">Bestellung</th>
+                                        <th align="right" style="padding: 12px 14px; color: #103b53; font-size: 12px; letter-spacing: 0.5px; text-transform: uppercase;">Betrag</th>
+                                    </tr>
+                                </thead>
+                                <tbody>{% for order in orders %}<tr>
+                                    <td valign="top" style="padding: 14px; border-top: 1px solid #dbe3df; font-weight: 700;">{{ order.user.name }}</td>
+                                    <td valign="top" style="padding: 14px; border-top: 1px solid #dbe3df; color: #60777c; line-height: 1.5;">{% for item in order.items.all %}<strong style="color: #103b53;">{{ item.quantity }}x</strong>&nbsp; {{ item.product.name }} <span style="white-space: nowrap;">({{ item.unit_price_cents|euros }})</span>{% if not forloop.last %}<br>{% endif %}{% empty %}Keine Bestellung{% endfor %}</td>
+                                    <td align="right" valign="top" style="padding: 14px; border-top: 1px solid #dbe3df; font-weight: 700; white-space: nowrap;">{{ order.total|euros }}</td>
+                                </tr>{% empty %}<tr>
+                                    <td colspan="3" style="padding: 16px; border-top: 1px solid #dbe3df; color: #60777c;">Keine Bestellungen.</td>
+                                </tr>{% endfor %}</tbody>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="email-padding" style="padding: 18px 40px 24px; border-top: 1px solid #dbe3df; color: #60777c; font-size: 12px; line-height: 1.5;">Weisswurst. Leberkas. Beste Gesellschaft.</td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

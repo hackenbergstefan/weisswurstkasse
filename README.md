@@ -105,12 +105,24 @@ All settings are environment-driven; see `deployment.example` and
 | `PUBLIC_BASE_URL`      | Canonical URL used for PayPal redirects                                 |
 | `PAYPAL_ENVIRONMENT`   | `sandbox` or `live`                                                     |
 | `PAYPAL_API_BASE`      | Optional override; environment-specific official API by default         |
+| `EMAIL_HOST`           | SMTP server hostname                                                     |
+| `EMAIL_PORT`           | SMTP server port, defaults to `25`                                      |
+| `EMAIL_HOST_USER`      | SMTP login user                                                          |
+| `EMAIL_HOST_PASSWORD`  | SMTP login password                                                      |
+| `EMAIL_USE_TLS`        | Enable STARTTLS, typically `true` with port `587`                       |
+| `EMAIL_USE_SSL`        | Enable implicit TLS, typically `true` with port `465`                   |
+| `DEFAULT_FROM_EMAIL`   | Sender address for order notifications                                   |
 
 Configuration changes apply to newly generated events. Existing event deadlines
 are retained. Products and prices are editable shared application data, not
 hard-coded configuration. The ORM is portable to PostgreSQL; install
 `psycopg[binary]`, set `DATABASE_URL`, and migrate. Existing data migration and
 PostgreSQL operational testing are separate operator tasks.
+
+At the order deadline, every participant receives their final order and balance
+for the event date. Active admins receive the complete order list. Configure a
+working SMTP server before operating the worker; it sends these notifications
+after the event status has been changed to `LOCKED`.
 
 Weisswurst and Leberkaese have separate weekly schedules and product selections.
 Leberkaese starts with only Leberkassemmel at EUR 2.00; `seed_products` adds the

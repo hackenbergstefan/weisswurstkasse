@@ -1,0 +1,10 @@
+{% load money %}Hallo {{ order.user.name }},
+
+der Bestellschluss fuer {{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }} ist erreicht.
+
+Deine Bestellung:
+{% for item in order.items.all %}- {{ item.quantity }} x {{ item.product.name }} zu {{ item.unit_price_cents|euros }}
+{% empty %}- Keine Bestellung
+{% endfor %}
+Gesamt: {{ order.total|euros }}
+Kontostand zum Termin: {{ balance|euros }}

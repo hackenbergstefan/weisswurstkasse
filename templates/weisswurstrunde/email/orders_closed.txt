@@ -1,0 +1,13 @@
+{% load money %}Gesamtbestellung: {{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }}
+
+Gesamtmenge:
+{% for total in product_totals %}- {{ total.quantity }} {{ total.name }}
+{% empty %}- Keine Produkte bestellt
+{% endfor %}
+
+{% for order in orders %}{{ order.user.name }}
+{% for item in order.items.all %}- {{ item.quantity }} x {{ item.product.name }} zu {{ item.unit_price_cents|euros }}
+{% empty %}- Keine Bestellung
+{% endfor %}Betrag: {{ order.total|euros }}
+
+{% endfor %}
