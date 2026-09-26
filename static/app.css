@@ -652,21 +652,27 @@ small {
 .future-description {
   flex: 1;
   min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
 }
 
 .future-description strong {
+  grid-column: 2;
   font-size: 12px;
 }
 
 .event-type-icon {
-  width: 16px;
-  height: 16px;
-  margin-right: 5px;
-  vertical-align: -3px;
+  grid-row: 1 / span 2;
+  width: 28px;
+  height: 100%;
+  margin: 0;
+  object-fit: contain;
   color: var(--green);
 }
 
 .future-description>span {
+  grid-column: 2;
   display: block;
   font-size: 10px;
   color: var(--muted);
@@ -1486,10 +1492,10 @@ tr:nth-child(3n) .avatar {
 }
 
 .stammtisch-dashboard .event-type-icon {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
-  margin-right: 2px;
+  margin-right: 5px;
   vertical-align: middle;
 }
 

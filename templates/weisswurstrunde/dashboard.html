@@ -43,10 +43,10 @@
       id="event-{{ item.order.event.pk }}">
       <summary><span
           class="date-block"><strong>{{ item.order.event.date|date:'d' }}</strong><span>{{ item.order.event.date|date:'M' }}</span></span><span
-          class="future-description"><strong>{% if item.order.event.event_type == 'WEISSWURST' %}<img
-              class="event-type-icon" src="{% static 'weisswurst-neu.png' %}" alt="" width="759"
-              height="755">{% else %}<img class="event-type-icon" src="{% static 'leberkas-neu.png' %}" alt=""
-              width="759" height="755">{% endif %}{{ item.order.event.get_event_type_display }} &middot;
+          class="future-description">{% if item.order.event.event_type == 'WEISSWURST' %}<img class="event-type-icon"
+            src="{% static 'weisswurst-neu.png' %}" alt="" width="759" height="755">{% else %}<img
+            class="event-type-icon" src="{% static 'leberkas-neu.png' %}" alt="" width="759"
+            height="755">{% endif %}<strong>{{ item.order.event.get_event_type_display }} &middot;
             {{ item.order.event.date|date:'l, j. F' }}{% if item.order.event.status == 'CANCELLED' %} &middot;
             abgesagt{% endif %}</strong><span>{% for order_item in item.order.items.all %}{{ order_item.quantity }}
             {{ order_item.product.name }}{% if not forloop.last %}

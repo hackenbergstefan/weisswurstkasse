@@ -247,7 +247,7 @@ class ViewTests(TestCase):
         self.assertEqual(detail.context["totals"], {self.product.name: 5})
         self.assertEqual(detail.context["grand_total"], 800)
         self.assertContains(detail, "<th>Teilnehmer</th>")
-        self.assertContains(detail, 'src="/static/weisswurst-neu.png"')
+        self.assertEqual(detail.content.count(b'src="/static/weisswurst-neu.png"'), 1)
         self.assertContains(detail, "?count=20")
 
     def test_orders_overview_limits_and_sorts_upcoming_dates(self):

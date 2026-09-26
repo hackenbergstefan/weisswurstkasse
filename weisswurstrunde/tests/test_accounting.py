@@ -130,7 +130,11 @@ class AccountingTests(TestCase):
         self.assertIn("weisswurst-logo.png", participant_message.alternatives[0][0])
         self.assertIn("weisswurst-logo.png", admin_message.alternatives[0][0])
         self.assertIn("weisswurst-neu.png", participant_message.alternatives[0][0])
-        self.assertIn("weisswurst-neu.png", admin_message.alternatives[0][0])
+        admin_html = admin_message.alternatives[0][0]
+        self.assertEqual(admin_html.count("weisswurst-neu.png"), 1)
+        self.assertLess(
+            admin_html.index("weisswurst-neu.png"), admin_html.index('class="order-table"')
+        )
 
         mail.outbox.clear()
         with self.captureOnCommitCallbacks(execute=True):

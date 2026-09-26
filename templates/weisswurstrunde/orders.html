@@ -46,8 +46,10 @@
 		hinzuf&uuml;gen</button>
 </form>
 {% endif %}
-<section class="totals-band">{% for name, quantity in totals.items %}<div><span
-			class="small-label">{{ name }}</span><strong>{{ quantity }}</strong></div>{% endfor %}<div
+<section class="totals-band">{% for name, quantity in totals.items %}{% product_image name as image_url %}<div
+			class="product-total">{% if image_url %}<img class="product-total-icon" src="{{ image_url }}" alt=""
+				width="48" height="48">{% endif %}<div class="product-total-copy"><span
+				class="small-label">{{ name }}</span><strong>{{ quantity }}</strong></div></div>{% endfor %}<div
 		class="grand-total"><span class="small-label">Gesamt</span><strong>{{ grand_total|euros }}</strong></div>
 </section>
 <div class="table-scroll">
@@ -65,9 +67,7 @@
 							class="avatar">{{ order.user.name|initials }}</span>{{ order.user.name }}</a></td>
 				<td>
 					<div class="order-description">
-						{% for item in order.items.all %}{% product_image item.product.name as image_url %}<span
-							class="order-product">{% if image_url %}<img src="{{ image_url }}" alt="" width="28"
-								height="28">{% endif %}<span><strong>{{ item.quantity }}</strong>
+						{% for item in order.items.all %}<span class="order-product"><span><strong>{{ item.quantity }}</strong>
 								{{ item.product.name }} <small class="muted">&agrave;
 									{{ item.unit_price_cents|euros }}</small></span></span>{% empty %}<span
 							class="muted">Keine

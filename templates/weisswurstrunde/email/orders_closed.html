@@ -66,7 +66,8 @@
                             <p style="margin: 0; color: #103b53; font-size: 16px; line-height: 1.6;">
                                 <strong>{{ event.get_event_type_display }} am
                                     {{ event.date|date:"d.m.Y" }}</strong><br><span
-                                    style="color: #60777c;">{{ orders|length }} Teilnehmer</span></p>
+                                    style="color: #60777c;">{{ orders|length }} Teilnehmer</span>
+                            </p>
                         </td>
                     </tr>
                     {% if product_totals %}<tr>
@@ -78,10 +79,20 @@
                                         <p
                                             style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">
                                             Gesamtmenge</p>
-                                        <p style="margin: 0; font-size: 25px; font-weight: 700; line-height: 1.35;">
-                                            {% for total in product_totals %}{{ total.quantity }}
-                                            {{ total.name }}{% if not forloop.last %} &middot; {% endif %}{% endfor %}
-                                        </p>
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                            {% for total in product_totals %}{% product_image_url total.name as image_url %}
+                                            <tr>
+                                                <td valign="middle" style="padding: 6px 12px 6px 0;">
+                                                    {% if image_url %}<img src="{{ image_url }}" alt="" width="48"
+                                                        height="48"
+                                                        style="display: block; width: 48px; height: 48px; border: 0;">{% endif %}
+                                                </td>
+                                                <td valign="middle"
+                                                    style="color: #103b53; font-size: 16px; line-height: 1.35;">
+                                                    <strong>{{ total.quantity }} {{ total.name }}</strong>
+                                                </td>
+                                            </tr>{% endfor %}
+                                        </table>
                                     </td>
                                 </tr>
                             </table>
@@ -111,9 +122,7 @@
                                             {{ order.user.name }}</td>
                                         <td valign="top"
                                             style="padding: 14px; border-top: 1px solid #dbe3df; color: #60777c; line-height: 1.5;">
-                                            {% for item in order.items.all %}{% product_image_url item.product.name as image_url %}{% if image_url %}<img
-                                                src="{{ image_url }}" alt="" width="36" height="36"
-                                                style="display: inline-block; width: 36px; height: 36px; margin-right: 7px; vertical-align: middle; border: 0;">{% endif %}<strong
+                                            {% for item in order.items.all %}<strong
                                                 style="color: #103b53;">{{ item.quantity }}x</strong>&nbsp;
                                             {{ item.product.name }} <span
                                                 style="white-space: nowrap;">({{ item.unit_price_cents|euros }})</span>{% if not forloop.last %}<br>{% endif %}{% empty %}Keine
