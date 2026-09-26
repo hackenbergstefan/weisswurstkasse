@@ -70,8 +70,8 @@
                 </tr>
             </thead>
             <tbody>{% for payout in payout_records %}<tr>
-                    <td>{{ payout.created_at|date:'d.m.Y H:i' }}<small class="block muted">{{ payout.created_by.name
-                            }}</small></td>
+                    <td>{{ payout.created_at|date:'d.m.Y H:i' }}<small
+                            class="block muted">{{ payout.created_by.name }}</small></td>
                     <td>{{ payout.get_method_display }}</td>
                     <td>{{ payout.get_status_display }}</td>
                     <td>{{ payout.recipient }}{% if payout.note %}<small
@@ -96,10 +96,11 @@
                 </tr>
             </thead>
             <tbody>{% for payment in payment_records %}<tr>
-                    <td>{{ payment.created_at|date:'d.m.Y H:i' }}<small class="block muted">{{
-                            payment.get_purpose_display }}</small></td>
-                    <td><span class="badge {% if payment.status == 'FAILED' %}due{% endif %}">{{
-                            payment.get_status_display }}</span></td>
+                    <td>{{ payment.created_at|date:'d.m.Y H:i' }}<small
+                            class="block muted">{{ payment.get_purpose_display }}</small></td>
+                    <td><span
+                            class="badge {% if payment.status == 'FAILED' %}due{% endif %}">{{ payment.get_status_display }}</span>
+                    </td>
                     <td class="numeric">{{ payment.amount_cents|euros }}</td>
                     <td>
                         {% if payment.order_id %}<form method="post" action="{% url 'paypal_sync' payment.pk %}">

@@ -110,7 +110,7 @@ class ViewTests(TestCase):
         self.assertNotContains(response, 'src="/static/breakfast.jpg"')
         self.assertNotContains(response, 'src="/static/leberkaese.jpg"')
         self.assertContains(response, 'src="/static/beer.png"')
-        self.assertContains(response, "Dein Wirtshaustisch")
+        self.assertContains(response, "Bestellzettel")
         self.assertContains(response, "Passt. Bestellen!")
         self.assertContains(response, 'class="order-item product-card"')
         self.assertNotContains(response, "data-product-filters")

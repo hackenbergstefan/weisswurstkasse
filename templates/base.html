@@ -43,7 +43,8 @@
           aria-hidden="true"></i><span>{{ message }}</span></div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="site-footer"><strong>Augsburg. Brezn. Beste Gesellschaft.</strong>{% if user.is_authenticated %}<div>
+  <footer class="site-footer"><strong>Weißwurst. Leberkas. Beste Gesellschaft.</strong>{% if user.is_authenticated %}
+    <div>
       {% if user.is_admin %}<a href="{% url 'products' %}">Sortiment</a>{% endif %}<a
         href="{% url 'history' %}">Kontoverlauf</a>
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button"
