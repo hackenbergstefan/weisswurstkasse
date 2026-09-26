@@ -435,12 +435,26 @@ class ViewTests(TestCase):
     def test_admin_can_cancel_event_and_cancelled_events_are_not_editable(self):
         self.user.is_admin = True
         self.user.save()
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        other_order = Order.objects.create(user=self.other, event=self.event)
+        save_order(other_order.pk, {self.product.pk: 1}, self.user)
         self.client.force_login(self.user)
         path = reverse("cancel_event", args=[self.event.pk])
         self.assertEqual(self.client.post(path).status_code, 302)
         self.event.refresh_from_db()
         self.assertEqual(self.event.status, Event.Status.CANCELLED)
         self.assertFalse(self.event.can_edit(self.user))
+        self.order.refresh_from_db()
+        other_order.refresh_from_db()
+        self.assertFalse(self.order.items.exists())
+        self.assertFalse(other_order.items.exists())
+        self.assertEqual(self.order.total, 0)
+        self.assertEqual(other_order.total, 0)
+        self.assertEqual(sum(self.order.charges.values_list("amount_cents", flat=True)), 0)
+        self.assertEqual(sum(other_order.charges.values_list("amount_cents", flat=True)), 0)
+        charge_count = self.order.charges.count() + other_order.charges.count()
+        self.assertEqual(self.client.post(path).status_code, 302)
+        self.assertEqual(self.order.charges.count() + other_order.charges.count(), charge_count)
         self.assertNotContains(
             self.client.get("/orders/", {"event": self.event.pk}),
             "Termin absagen",
@@ -451,7 +465,7 @@ class ViewTests(TestCase):
             ).status_code,
             302,
         )
-        self.assertFalse(Order.objects.filter(user=self.other, event=self.event).exists())
+        self.assertFalse(Order.objects.get(user=self.other, event=self.event).items.exists())
 
     def test_only_admin_can_cancel_event(self):
         path = reverse("cancel_event", args=[self.event.pk])

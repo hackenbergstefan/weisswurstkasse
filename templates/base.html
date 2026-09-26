@@ -20,12 +20,16 @@
         width="53" height="65"><span class="brand-name"><small>Die</small>Wei&szlig;wurstmaschine.</span></a>
     {% if user.is_authenticated %}
     <nav class="main-nav" aria-label="Hauptnavigation">
-      <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page" {% endif %}><i data-lucide="house" aria-hidden="true"></i><span>Meine Runde</span></a>
-      <a href="{% url 'orders' %}" {% if request.resolver_match.url_name == 'orders' %}aria-current="page" {% endif %}><i
-          data-lucide="clipboard-list" aria-hidden="true"></i><span>Bestellungen</span></a>
-      <a href="{% url 'order_history' %}" {% if request.resolver_match.url_name == 'order_history' %}aria-current="page" {% endif %}><i data-lucide="history" aria-hidden="true"></i><span>Historie</span></a>
-      <a href="{% url 'participants' %}" {% if request.resolver_match.url_name == 'participants' %}aria-current="page" {% endif %}><i data-lucide="users" aria-hidden="true"></i><span>Teilnehmer</span></a>
-      <a href="{% url 'payments' %}" {% if request.resolver_match.url_name == 'payments' %}aria-current="page" {% endif %}><i data-lucide="wallet" aria-hidden="true"></i><span>Kasse</span></a>
+      <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"
+        {% endif %}><i data-lucide="house" aria-hidden="true"></i><span>Meine Runde</span></a>
+      <a href="{% url 'orders' %}" {% if request.resolver_match.url_name == 'orders' %}aria-current="page"
+        {% endif %}><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Bestellungen</span></a>
+      <a href="{% url 'order_history' %}" {% if request.resolver_match.url_name == 'order_history' %}aria-current="page"
+        {% endif %}><i data-lucide="history" aria-hidden="true"></i><span>Historie</span></a>
+      <a href="{% url 'participants' %}" {% if request.resolver_match.url_name == 'participants' %}aria-current="page"
+        {% endif %}><i data-lucide="users" aria-hidden="true"></i><span>Teilnehmer</span></a>
+      <a href="{% url 'payments' %}" {% if request.resolver_match.url_name == 'payments' %}aria-current="page"
+        {% endif %}><i data-lucide="wallet" aria-hidden="true"></i><span>Kasse</span></a>
     </nav>
     <a class="profile-link" href="{% url 'profile' %}" title="Mein Profil"><i data-lucide="circle-user-round"
         aria-hidden="true"></i><span>{{ user.name }}</span></a>
@@ -39,7 +43,8 @@
           aria-hidden="true"></i><span>{{ message }}</span></div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="site-footer"><strong>Augsburg. Brezn. Beste Gesellschaft.</strong>{% if user.is_authenticated %}<div>{% if user.is_admin %}<a href="{% url 'products' %}">Sortiment</a>{% endif %}<a
+  <footer class="site-footer"><strong>Augsburg. Brezn. Beste Gesellschaft.</strong>{% if user.is_authenticated %}<div>
+      {% if user.is_admin %}<a href="{% url 'products' %}">Sortiment</a>{% endif %}<a
         href="{% url 'history' %}">Kontoverlauf</a>
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button"
           type="submit">Abmelden</button></form>

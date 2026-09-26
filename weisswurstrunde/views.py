@@ -336,7 +336,9 @@ def order_history(request):
                 "total": sum(item["amount"] or 0 for item in items),
             }
         )
-    return render(request, "weisswurstrunde/order_history.html", {"events": page, "summaries": summaries})
+    return render(
+        request, "weisswurstrunde/order_history.html", {"events": page, "summaries": summaries}
+    )
 
 
 @login_required

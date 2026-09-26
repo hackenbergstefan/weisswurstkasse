@@ -7,7 +7,9 @@
       aria-hidden="true"></i>Admin-Korrektur</span>{% endif %}
   <section class="menu-products">
     <div class="menu-heading">
-      <h2>{% if order.event.event_type == 'LEBERKAESE' %}Leberk&auml;s-Liebe{% else %}Wurst-Spezialit&auml;ten{% endif %}</h2>
+      <h2>
+        {% if order.event.event_type == 'LEBERKAESE' %}Leberk&auml;s-Liebe{% else %}Wurst-Spezialit&auml;ten{% endif %}
+      </h2>
       <p>{% if order.event.event_type == 'LEBERKAESE' %}Warm. Herzhaft. Sauguad.{% else %}A gscheide Grundlage f&uuml;r
         deine Runde.{% endif %}</p>
     </div>
@@ -27,7 +29,8 @@
           {% else %}<i data-lucide="utensils" aria-hidden="true"></i>{% endif %}
         </div>
         <div class="product-card-body"><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span
-          class="item-unit">pro {{ row.product.unit }}</span><strong class="product-price">{{ row.product.price_cents|euros }}</strong>
+            class="item-unit">pro {{ row.product.unit }}</span><strong class="product-price">{{
+            row.product.price_cents|euros }}</strong>
           <div class="quantity-control"><button type="button" class="step-button" data-step="-1"
               aria-label="{{ row.product.name }} verringern" title="Verringern"><i data-lucide="minus"
                 aria-hidden="true"></i></button>{{ row.field }}<button type="button" class="step-button" data-step="1"
@@ -46,12 +49,17 @@
     <h2>Dein Wirtshaustisch</h2>
     <p class="receipt-who">{{ order.user.name }} &middot; {{ order.event.date|date:'D, d.m.' }}</p>
     <div class="receipt-lines">
-        {% for row in rows %}<div class="receipt-line" data-receipt-for="{{ row.field.id_for_label }}" {% if not row.field.value or row.field.value == '0' %}hidden{% endif %}><span><span data-receipt-quantity>{{ row.field.value|default:0 }}</span> &times; {{ row.product.name }}</span><span data-receipt-total>{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>{% endfor %}
+      {% for row in rows %}<div class="receipt-line" data-receipt-for="{{ row.field.id_for_label }}"
+        {% if not row.field.value or row.field.value == '0' %}hidden{% endif %}><span><span
+            data-receipt-quantity>{{ row.field.value|default:0 }}</span> &times; {{ row.product.name }}</span><span
+          data-receipt-total>{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>{% endfor %}
       {% for item in inactive %}<div class="receipt-line muted"><span>{{ item.quantity }} &times; {{ item.product.name
-          }} <small>inaktiv</small></span><span>{{ item.unit_price_cents|euros }} / {{ item.product.unit }}</span></div>
+          }} <small>inaktiv</small></span><span>{{ item.unit_price_cents|euros }} / {{ item.product.unit }}</span>
+      </div>
       {% endfor %}
     </div>
-    <div class="order-bottom"><span>Summa</span><output class="order-total" aria-live="polite">{{ display_total|euros }}</output></div>
+    <div class="order-bottom"><span>Summa</span><output class="order-total"
+        aria-live="polite">{{ display_total|euros }}</output></div>
     <button class="button primary full receipt-submit" type="submit">Passt. Bestellen!<i data-lucide="arrow-right"
         aria-hidden="true"></i></button>
     <p class="receipt-note">{% if order.event.editable %}Bis zum Bestellschluss kannst du deine Runde noch

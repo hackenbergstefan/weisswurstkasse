@@ -149,9 +149,30 @@ def cancel_event(event_id, actor):
     event = Event.objects.select_for_update().get(pk=event_id)
     if event.status == Event.Status.SETTLED:
         raise ValidationError("Abgeschlossene Termine koennen nicht abgesagt werden.")
-    if event.status != Event.Status.CANCELLED:
-        event.status = Event.Status.CANCELLED
-        event.save(update_fields=["status"])
+    if event.status == Event.Status.CANCELLED:
+        return event
+
+    user_ids = Order.objects.filter(event=event).values_list("user_id", flat=True)
+    list(User.objects.select_for_update().filter(pk__in=user_ids))
+    orders = list(Order.objects.select_for_update().filter(event=event).prefetch_related("items"))
+    for order in orders:
+        total = order.total
+        if order.items.exists():
+            order.items.all().delete()
+            order.version += 1
+            order.save(update_fields=["version", "updated_at"])
+        if total:
+            LedgerEntry.objects.create(
+                user=order.user,
+                amount_cents=total,
+                kind=LedgerEntry.Kind.ORDER,
+                order=order,
+                recorded_by=actor,
+                reference=f"event-cancel:{event.pk}:order:{order.pk}",
+                note=f"{event.get_event_type_display()} {event.date:%d.%m.%Y} abgesagt",
+            )
+    event.status = Event.Status.CANCELLED
+    event.save(update_fields=["status"])
     return event
 
 
