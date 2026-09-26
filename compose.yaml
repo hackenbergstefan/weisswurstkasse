@@ -6,6 +6,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./db.sqlite3:/data/db.sqlite3
+      - ./templates:/app/templates:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -25,6 +26,7 @@ services:
     env_file: .env
     volumes:
       - ./db.sqlite3:/data/db.sqlite3
+      - ./templates:/app/templates:ro
     depends_on:
       web:
         condition: service_healthy
