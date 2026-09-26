@@ -2,7 +2,51 @@
 {% load money %}
 {% block title %}Kontoverlauf{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">{{ account.name }}</p><h1>Kontoverlauf</h1></div><div><span class="small-label">Kontostand</span><strong class="summary-balance {% if balance < 0 %}negative{% endif %}">{{ balance|euros }}</strong></div></div>
-<div class="table-scroll"><table class="ledger-table"><thead><tr><th>Datum</th><th>Buchung</th><th class="numeric">Betrag</th><th class="numeric">Kontostand</th><th><span class="sr-only">Korrektur</span></th></tr></thead><tbody>{% for entry in entries %}<tr><td class="nowrap">{{ entry.created_at|date:'d.m.Y' }}<small class="block muted">{{ entry.created_at|date:'H:i' }}</small></td><td><strong>{{ entry.get_kind_display }}</strong><span class="block entry-note">{{ entry.note }}</span><small class="muted">{{ entry.method }}{% if entry.recorded_by %} &middot; {{ entry.recorded_by.name }}{% endif %}</small><details class="reference"><summary>Referenz</summary><code>{{ entry.reference }}</code></details></td><td class="numeric strong {% if entry.amount_cents > 0 %}positive{% endif %}">{% if entry.amount_cents > 0 %}+{% endif %}{{ entry.amount_cents|euros }}</td><td class="numeric">{{ entry.running_balance|euros }}</td><td>{% if entry.kind == 'MANUAL' and not entry.reversal %}<a class="icon-button" href="{% url 'correction' entry.pk %}" title="Zahlung korrigieren" aria-label="Zahlung korrigieren"><i data-lucide="undo-2" aria-hidden="true"></i></a>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="empty-state">Noch keine Buchungen.</td></tr>{% endfor %}</tbody></table></div>
-{% if entries.has_other_pages %}<nav class="pagination" aria-label="Seiten">{% if entries.has_previous %}<a class="button secondary" href="?page={{ entries.previous_page_number }}">Zur&uuml;ck</a>{% endif %}<span>{{ entries.number }} / {{ entries.paginator.num_pages }}</span>{% if entries.has_next %}<a class="button secondary" href="?page={{ entries.next_page_number }}">Weiter</a>{% endif %}</nav>{% endif %}
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">{{ account.name }}</p>
+        <h1>Kontoverlauf</h1>
+    </div>
+    <div><span class="small-label">Kontostand</span><strong
+            class="summary-balance {% if balance < 0 %}negative{% endif %}">{{ balance|euros }}</strong></div>
+</div>
+<div class="table-scroll">
+    <table class="ledger-table">
+        <thead>
+            <tr>
+                <th>Datum</th>
+                <th>Buchung</th>
+                <th class="numeric">Betrag</th>
+                <th class="numeric">Kontostand</th>
+                <th><span class="sr-only">Korrektur</span></th>
+            </tr>
+        </thead>
+        <tbody>{% for entry in entries %}<tr>
+                <td class="nowrap">{{ entry.created_at|date:'d.m.Y' }}<small
+                        class="block muted">{{ entry.created_at|date:'H:i' }}</small></td>
+                <td><strong>{{ entry.get_kind_display }}</strong><span
+                        class="block entry-note">{{ entry.display_note }}</span>{% if entry.kind != 'ORDER' %}<small
+                        class="muted">{{ entry.method }}{% if entry.recorded_by %} &middot;
+                        {{ entry.recorded_by.name }}{% endif %}</small>{% endif %}
+                    <details class="reference">
+                        <summary>Referenz</summary><code>{{ entry.reference }}</code>
+                    </details>
+                </td>
+                <td class="numeric strong {% if entry.amount_cents > 0 %}positive{% endif %}">
+                    {% if entry.amount_cents > 0 %}+{% endif %}{{ entry.amount_cents|euros }}</td>
+                <td class="numeric">{{ entry.running_balance|euros }}</td>
+                <td>{% if entry.kind == 'MANUAL' and not entry.reversal %}<a class="icon-button"
+                        href="{% url 'correction' entry.pk %}" title="Zahlung korrigieren"
+                        aria-label="Zahlung korrigieren"><i data-lucide="undo-2" aria-hidden="true"></i></a>{% endif %}
+                </td>
+            </tr>{% empty %}<tr>
+                <td colspan="5" class="empty-state">Noch keine Buchungen.</td>
+            </tr>{% endfor %}</tbody>
+    </table>
+</div>
+{% if entries.has_other_pages %}<nav class="pagination" aria-label="Seiten">{% if entries.has_previous %}<a
+        class="button secondary"
+        href="?page={{ entries.previous_page_number }}">Zur&uuml;ck</a>{% endif %}<span>{{ entries.number }} /
+        {{ entries.paginator.num_pages }}</span>{% if entries.has_next %}<a class="button secondary"
+        href="?page={{ entries.next_page_number }}">Weiter</a>{% endif %}</nav>{% endif %}
 {% endblock %}

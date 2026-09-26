@@ -668,6 +668,11 @@ def history(request, user_id=None):
     for entry in entries:
         running += entry.amount_cents
         entry.running_balance = running
+        entry.display_note = (
+            entry.note.split(" (Stand ", 1)[0]
+            if entry.kind == LedgerEntry.Kind.ORDER
+            else entry.note
+        )
     page = Paginator(list(reversed(entries)), 40).get_page(request.GET.get("page"))
     return render(
         request,

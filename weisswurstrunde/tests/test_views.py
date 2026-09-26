@@ -165,6 +165,18 @@ class ViewTests(TestCase):
                 self.assertIn(deposit.pk, [entry.pk for entry in entries])
                 self.assertEqual(entries[0].running_balance, expected)
 
+    def test_history_hides_order_audit_metadata(self):
+        self.event.date = timezone.localdate()
+        self.event.save()
+        save_order(self.order.pk, {self.product.pk: 2}, self.other)
+        self.client.force_login(self.user)
+
+        response = self.client.get("/history/")
+
+        self.assertContains(response, "Wei\u00dfwurst")
+        self.assertNotContains(response, "(Stand 1)")
+        self.assertNotContains(response, f"&middot; {self.other.name}")
+
     def test_profile_and_defaults_only_change_current_user(self):
         self.client.force_login(self.user)
         response = self.client.post(
