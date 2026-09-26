@@ -27,36 +27,24 @@
         <div>
           <p class="eyebrow">N&auml;chster Termin &middot; {{ item.order.event.get_event_type_display }}</p>
           <h2>{{ item.order.event.date|date:'l' }}<span>{{ item.order.event.date|date:'j. F Y' }}</span></h2>
-          <p class="deadline"><i data-lucide="clock-3" aria-hidden="true"></i>Bestellschluss {{
-            item.order.event.deadline|date:'D, d.m. \u\m H:i' }}</p>
+          <p class="deadline"><i data-lucide="clock-3" aria-hidden="true"></i>Bestellschluss {{ item.order.event.deadline|date:'D, d.m. \u\m H:i' }}</p>
         </div>{% if item.order.event.event_type == 'WEISSWURST' %}<img class="breakfast-photo"
-          src="{% static 'weisswurst-breze.png' %}" alt="Wei&szlig;wurst mit Breze" width="759" height="755">{% else
-        %}<img class="breakfast-photo" src="{% static 'leberkas.png' %}" alt="Leberk&auml;se in einer Semmel"
+          src="{% static 'weisswurst-breze.png' %}" alt="Wei&szlig;wurst mit Breze" width="759" height="755">{% else %}<img class="breakfast-photo" src="{% static 'leberkas.png' %}" alt="Leberk&auml;se in einer Semmel"
           width="759" height="755">{% endif %}
       </div>
-      {% include 'weisswurstrunde/order_form.html' with order=item.order form=item.form rows=item.rows
-      inactive=item.inactive fixed_total=item.fixed_total display_total=item.display_total can_edit=item.can_edit %}
+      {% include 'weisswurstrunde/order_form.html' with order=item.order form=item.form rows=item.rows inactive=item.inactive fixed_total=item.fixed_total display_total=item.display_total can_edit=item.can_edit %}
     </section>
     {% else %}
-    {% if forloop.counter == 2 %}<h2 class="section-title">Die n&auml;chsten Runden <span class="count">{{
-        upcoming|length|add:'-1' }}</span></h2>{% endif %}
+    {% if forloop.counter == 2 %}<h2 class="section-title">Die n&auml;chsten Runden <span class="count">{{ upcoming|length|add:'-1' }}</span></h2>{% endif %}
     <details class="future-event {% if item.order.event.status == 'CANCELLED' %}event-cancelled{% endif %}"
       id="event-{{ item.order.event.pk }}">
-      <summary><span class="date-block"><strong>{{ item.order.event.date|date:'d' }}</strong><span>{{
-            item.order.event.date|date:'M' }}</span></span><span class="future-description"><strong>{% if
-            item.order.event.event_type == 'WEISSWURST' %}<img class="event-type-icon"
+      <summary><span class="date-block"><strong>{{ item.order.event.date|date:'d' }}</strong><span>{{ item.order.event.date|date:'M' }}</span></span><span class="future-description"><strong>{% if item.order.event.event_type == 'WEISSWURST' %}<img class="event-type-icon"
               src="{% static 'weisswurst-breze.png' %}" alt="" width="759" height="755">{% else %}<img
-              class="event-type-icon" src="{% static 'leberkas.png' %}" alt="" width="759" height="755">{% endif %}{{
-            item.order.event.get_event_type_display }} &middot; {{ item.order.event.date|date:'l, j. F' }}{% if
-            item.order.event.status == 'CANCELLED' %} &middot; abgesagt{% endif %}</strong><span>{% for order_item in
-            item.order.items.all %}{{ order_item.quantity }} {{ order_item.product.name }}{% if not forloop.last %}
-            &middot; {% endif %}{% empty %}Noch nichts bestellt{% endfor %}</span></span><strong class="future-total">{{
-          item.order.total|euros }}</strong><i class="expand-icon" data-lucide="chevron-down" aria-hidden="true"></i>
+              class="event-type-icon" src="{% static 'leberkas.png' %}" alt="" width="759" height="755">{% endif %}{{ item.order.event.get_event_type_display }} &middot; {{ item.order.event.date|date:'l, j. F' }}{% if item.order.event.status == 'CANCELLED' %} &middot; abgesagt{% endif %}</strong><span>{% for order_item in item.order.items.all %}{{ order_item.quantity }} {{ order_item.product.name }}{% if not forloop.last %}
+            &middot; {% endif %}{% empty %}Noch nichts bestellt{% endfor %}</span></span><strong class="future-total">{{ item.order.total|euros }}</strong><i class="expand-icon" data-lucide="chevron-down" aria-hidden="true"></i>
       </summary>
       <div class="future-body">
-        <p class="deadline">Bestellschluss {{ item.order.event.deadline|date:'d.m.Y, H:i' }}</p>{% include
-        'weisswurstrunde/order_form.html' with order=item.order form=item.form rows=item.rows inactive=item.inactive
-        fixed_total=item.fixed_total display_total=item.display_total can_edit=item.can_edit %}
+        <p class="deadline">Bestellschluss {{ item.order.event.deadline|date:'d.m.Y, H:i' }}</p>{% include 'weisswurstrunde/order_form.html' with order=item.order form=item.form rows=item.rows inactive=item.inactive fixed_total=item.fixed_total display_total=item.display_total can_edit=item.can_edit %}
       </div>
     </details>
     {% endif %}
@@ -71,8 +59,7 @@
         class="small-label">{% if balance < 0 %}Offener Betrag{% else %}Dein Guthaben{% endif %}</span>
           <div class="balance-value {% if balance < 0 %}negative{% endif %}">{{ balance|absolute|euros }}</div><a
             href="{% url 'payments' %}" class="button primary full"><i
-              data-lucide="{% if balance < 0 %}arrow-up-right{% else %}plus{% endif %}" aria-hidden="true"></i>{% if
-            balance < 0 %}Betrag ausgleichen{% else %}Guthaben aufladen{% endif %}</a><a class="quiet-link"
+              data-lucide="{% if balance < 0 %}arrow-up-right{% else %}plus{% endif %}" aria-hidden="true"></i>{% if balance < 0 %}Betrag ausgleichen{% else %}Guthaben aufladen{% endif %}</a><a class="quiet-link"
                 href="{% url 'history' %}">Kontoverlauf <i data-lucide="arrow-right" aria-hidden="true"></i></a>
     </section>
     <section class="sidebar-links"><a href="{% url 'orders' %}"><span class="link-icon"><i data-lucide="clipboard-list"

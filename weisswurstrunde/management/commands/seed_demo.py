@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -73,6 +74,32 @@ class Command(BaseCommand):
                     "Demo-Guthaben",
                     request_id,
                 )
+
+        today = timezone.localdate()
+        historical_events = [
+            (today - timedelta(days=7), EventType.WEISSWURST),
+            (today - timedelta(days=14), EventType.LEBERKAESE),
+        ]
+        for event_date, event_type in historical_events:
+            event, _ = Event.objects.get_or_create(
+                date=event_date,
+                event_type=event_type,
+                defaults={
+                    "deadline": timezone.now() - timedelta(days=1),
+                    "status": Event.Status.SETTLED,
+                },
+            )
+            if event.status != Event.Status.SETTLED:
+                event.status = Event.Status.SETTLED
+                event.save(update_fields=["status"])
+            for index, user in enumerate(users[:2]):
+                order = user.orders.get_or_create(event=event)[0]
+                quantities = (
+                    {weisswurst.pk: 2 - index, brezel.pk: 1}
+                    if event_type == EventType.WEISSWURST
+                    else {leberkas.pk: 1 + index}
+                )
+                save_order(order.pk, quantities, users[2])
 
         self.stdout.write(
             self.style.SUCCESS(

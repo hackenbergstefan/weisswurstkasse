@@ -12,6 +12,7 @@ from weisswurstrunde.models import (
     EventType,
     LedgerEntry,
     Order,
+    OrderItem,
     Payout,
     PayPalPayment,
     Product,
@@ -46,6 +47,7 @@ class ViewTests(TestCase):
         paths = [
             "/",
             "/orders/",
+            "/order-history/",
             "/participants/",
             "/profile/",
             "/payments/",
@@ -304,6 +306,29 @@ class ViewTests(TestCase):
         response = self.client.get("/orders/", {"event": self.event.pk})
         self.assertEqual(response.context["event"], self.event)
         self.assertContains(response, "<th>Teilnehmer</th>")
+
+    def test_order_history_groups_past_orders_by_event_and_links_to_details(self):
+        past_event = Event.objects.create(
+            date=timezone.localdate() - timedelta(days=1),
+            deadline=timezone.now() - timedelta(days=2),
+        )
+        past_order = Order.objects.create(user=self.other, event=past_event)
+        OrderItem.objects.create(
+            order=past_order, product=self.product, quantity=2, unit_price_cents=160
+        )
+        second_past_order = Order.objects.create(user=self.user, event=past_event)
+        OrderItem.objects.create(
+            order=second_past_order, product=self.product, quantity=1, unit_price_cents=160
+        )
+        self.client.force_login(self.user)
+        response = self.client.get("/order-history/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context["events"]), [past_event])
+        self.assertEqual(response.context["summaries"][0]["items"][0]["quantity"], 3)
+        self.assertEqual(response.context["summaries"][0]["total"], 480)
+        self.assertContains(response, self.product.name)
+        self.assertContains(response, f"/orders/?event={past_event.pk}")
+        self.assertNotContains(response, "Noch keine vergangenen Bestellungen.")
 
     def test_password_change_preserves_session(self):
         self.client.force_login(self.user)

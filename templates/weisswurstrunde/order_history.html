@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% load money %}
+{% block title %}Historie{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Was gewesen ist</p>
+        <h1>Bestellhistorie</h1>
+    </div><a class="quiet-link" href="{% url 'orders' %}"><i data-lucide="arrow-left" aria-hidden="true"></i>Aktuelle
+        Bestellungen</a>
+</div>
+<div class="table-scroll">
+    <table>
+        <thead>
+            <tr>
+                <th>Termin</th>
+                <th>Bestellung</th>
+                <th class="numeric">Betrag</th>
+            </tr>
+        </thead>
+        <tbody>{% for summary in summaries %}<tr>
+                <td class="nowrap"><a class="quiet-link" href="{% url 'orders' %}?event={{ summary.event.pk }}">{{ summary.event.date|date:'d.m.Y' }}<i data-lucide="arrow-up-right" aria-hidden="true"></i></a><small class="block muted">{{ summary.event.get_event_type_display }}{% if summary.event.status == 'CANCELLED' %} &middot;
+                        abgesagt{% endif %}</small></td>
+                <td>
+                    <a class="order-description quiet-link" href="{% url 'orders' %}?event={{ summary.event.pk }}">{% for item in summary.items %}<span><strong>{{ item.quantity }}</strong> {{ item.items__product__name }}</span>{% empty %}<span class="muted">Keine Bestellung</span>{% endfor %}</a>
+                </td>
+                <td class="numeric strong"><a class="quiet-link" href="{% url 'orders' %}?event={{ summary.event.pk }}">{{ summary.total|euros }}</a></td>
+            </tr>{% empty %}<tr>
+                <td colspan="3" class="empty-state">Noch keine vergangenen Bestellungen.</td>
+            </tr>{% endfor %}</tbody>
+    </table>
+</div>
+{% if events.has_other_pages %}<nav class="pagination" aria-label="Seiten"><span>Seite {{ events.number }} von {{ events.paginator.num_pages }}</span>{% if events.has_previous %}<a class="icon-button"
+        href="?page={{ events.previous_page_number }}" title="Vorherige Seite" aria-label="Vorherige Seite"><i
+            data-lucide="arrow-left" aria-hidden="true"></i></a>{% endif %}{% if events.has_next %}<a
+        class="icon-button" href="?page={{ events.next_page_number }}" title="N&auml;chste Seite"
+          aria-label="N&auml;chste Seite"><i data-lucide="arrow-right" aria-hidden="true"></i></a>{% endif %}</nav>{% endif %}
+{% endblock %}

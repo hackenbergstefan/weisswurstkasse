@@ -11,7 +11,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q, Sum, Value
+from django.db.models import F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -305,6 +305,38 @@ def orders(request):
             "event_types": event_types,
         },
     )
+
+
+@login_required
+@require_GET
+def order_history(request):
+    past_events = Event.objects.filter(date__lt=timezone.localdate()).order_by(
+        "-date", "-event_type"
+    )
+    page = Paginator(past_events, 50).get_page(request.GET.get("page"))
+    items_by_event = {}
+    for item in (
+        Order.objects.filter(event__in=page.object_list)
+        .values("event_id", "items__product__name", "items__product__unit")
+        .annotate(
+            quantity=Sum("items__quantity"),
+            amount=Sum(F("items__quantity") * F("items__unit_price_cents")),
+        )
+        .order_by("event_id", "items__product__name")
+    ):
+        items_by_event.setdefault(item["event_id"], []).append(item)
+
+    summaries = []
+    for event in page:
+        items = items_by_event.get(event.pk, [])
+        summaries.append(
+            {
+                "event": event,
+                "items": items,
+                "total": sum(item["amount"] or 0 for item in items),
+            }
+        )
+    return render(request, "weisswurstrunde/order_history.html", {"events": page, "summaries": summaries})
 
 
 @login_required
