@@ -1,8 +1,8 @@
 # Local assets
 
-- `breze.png`, `weisswurst.png`, `leberkas.png`, `weisswurst-breze.png`:
-  user-supplied product images, used unchanged and displayed without cropping.
-  `weisswurst-breze.png` also identifies the Weisswurst event.
+- `breze-neu.png`, `weisswurst-neu.png`, `leberkas-neu.png`: user-supplied
+  product images, used in product selection, order overviews, and notification
+  emails.
 - `banner-augsburg.png`: user-supplied webpage banner, used unchanged and
   displayed with a responsive crop while preserving its proportions.
   No author or license information was supplied for these five PNG files.
@@ -23,7 +23,9 @@
 - `stammtisch.png`, `mascot.png`, `beer.png`: original project illustrations,
   exported from `design-previews/stammtisch-art.js` using the reference preview.
   They are local bitmap assets; no canvas, data URLs or inline scripts are
-  needed in the application. The mascot also serves as the favicon.
+  needed in the application.
+- `weisswurst-logo.png`: the square website logo, displayed in the site header,
+  as the favicon, and in order notification emails.
 - `fonts/fraunces.ttf`: Fraunces variable font, The Fraunces Project Authors,
   SIL OFL 1.1; see `fonts/Fraunces-OFL.txt`. Retained for the design previews.
   https://github.com/google/fonts/tree/main/ofl/fraunces

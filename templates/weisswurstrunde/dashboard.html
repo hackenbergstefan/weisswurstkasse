@@ -30,9 +30,9 @@
           <p class="deadline"><i data-lucide="clock-3" aria-hidden="true"></i>Bestellschluss
             {{ item.order.event.deadline|date:'D, d.m. \u\m H:i' }}</p>
         </div>{% if item.order.event.event_type == 'WEISSWURST' %}<img class="breakfast-photo"
-          src="{% static 'weisswurst-breze.png' %}" alt="Wei&szlig;wurst mit Breze" width="759"
-          height="755">{% else %}<img class="breakfast-photo" src="{% static 'leberkas.png' %}"
-          alt="Leberk&auml;se in einer Semmel" width="759" height="755">{% endif %}
+          src="{% static 'weisswurst-neu.png' %}" alt="Wei&szlig;wurst" width="759" height="755">{% else %}<img
+          class="breakfast-photo" src="{% static 'leberkas-neu.png' %}" alt="Leberk&auml;se in einer Semmel" width="759"
+          height="755">{% endif %}
       </div>
       {% include 'weisswurstrunde/order_form.html' with order=item.order form=item.form rows=item.rows inactive=item.inactive fixed_total=item.fixed_total display_total=item.display_total can_edit=item.can_edit %}
     </section>
@@ -44,9 +44,9 @@
       <summary><span
           class="date-block"><strong>{{ item.order.event.date|date:'d' }}</strong><span>{{ item.order.event.date|date:'M' }}</span></span><span
           class="future-description"><strong>{% if item.order.event.event_type == 'WEISSWURST' %}<img
-              class="event-type-icon" src="{% static 'weisswurst-breze.png' %}" alt="" width="759"
-              height="755">{% else %}<img class="event-type-icon" src="{% static 'leberkas.png' %}" alt="" width="759"
-              height="755">{% endif %}{{ item.order.event.get_event_type_display }} &middot;
+              class="event-type-icon" src="{% static 'weisswurst-neu.png' %}" alt="" width="759"
+              height="755">{% else %}<img class="event-type-icon" src="{% static 'leberkas-neu.png' %}" alt=""
+              width="759" height="755">{% endif %}{{ item.order.event.get_event_type_display }} &middot;
             {{ item.order.event.date|date:'l, j. F' }}{% if item.order.event.status == 'CANCELLED' %} &middot;
             abgesagt{% endif %}</strong><span>{% for order_item in item.order.items.all %}{{ order_item.quantity }}
             {{ order_item.product.name }}{% if not forloop.last %}

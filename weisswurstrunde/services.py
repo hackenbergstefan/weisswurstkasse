@@ -7,6 +7,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.template.loader import render_to_string
+from django.templatetags.static import static
 from django.utils import timezone
 
 from . import paypal
@@ -228,6 +229,7 @@ def event_balance(user, event):
 
 def send_order_close_emails(event_id):
     event = Event.objects.get(pk=event_id)
+    logo_url = f"{settings.PUBLIC_BASE_URL}{static('weisswurst-logo.png')}"
     orders = list(
         Order.objects.filter(event=event)
         .select_related("user")
@@ -235,7 +237,12 @@ def send_order_close_emails(event_id):
         .order_by("user__name")
     )
     for order in orders:
-        context = {"event": event, "order": order, "balance": event_balance(order.user, event)}
+        context = {
+            "event": event,
+            "order": order,
+            "balance": event_balance(order.user, event),
+            "logo_url": logo_url,
+        }
         message = EmailMultiAlternatives(
             subject=f"Deine Bestellung: {event.get_event_type_display()} am {event.date:%d.%m.%Y}",
             body=render_to_string("weisswurstrunde/email/order_closed.txt", context),
@@ -258,7 +265,12 @@ def send_order_close_emails(event_id):
                     item.product_id, {"name": item.product.name, "quantity": 0}
                 )
                 total["quantity"] += item.quantity
-        context = {"event": event, "orders": orders, "product_totals": product_totals.values()}
+        context = {
+            "event": event,
+            "orders": orders,
+            "product_totals": product_totals.values(),
+            "logo_url": logo_url,
+        }
         message = EmailMultiAlternatives(
             subject=f"Gesamtbestellung: {event.get_event_type_display()} am {event.date:%d.%m.%Y}",
             body=render_to_string("weisswurstrunde/email/orders_closed.txt", context),

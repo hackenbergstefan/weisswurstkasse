@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load money %}
+{% load money product_images %}
 {% block title %}Bestellungen{% endblock %}
 {% block content %}
 <div class="page-heading">
@@ -65,9 +65,12 @@
 							class="avatar">{{ order.user.name|initials }}</span>{{ order.user.name }}</a></td>
 				<td>
 					<div class="order-description">
-						{% for item in order.items.all %}<span><strong>{{ item.quantity }}</strong>
-							{{ item.product.name }} <small class="muted">&agrave;
-								{{ item.unit_price_cents|euros }}</small></span>{% empty %}<span class="muted">Keine
+						{% for item in order.items.all %}{% product_image item.product.name as image_url %}<span
+							class="order-product">{% if image_url %}<img src="{{ image_url }}" alt="" width="28"
+								height="28">{% endif %}<span><strong>{{ item.quantity }}</strong>
+								{{ item.product.name }} <small class="muted">&agrave;
+									{{ item.unit_price_cents|euros }}</small></span></span>{% empty %}<span
+							class="muted">Keine
 							Bestellung</span>{% endfor %}</div>
 				</td>
 				<td class="numeric strong">{{ order.total|euros }}</td>

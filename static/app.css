@@ -216,8 +216,8 @@ small {
 }
 
 .brand-mascot {
-  width: 53px;
-  height: 65px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
 }
 
@@ -981,6 +981,8 @@ input[type="checkbox"] {
 
 .auth-mascot {
   display: block;
+  width: 86px;
+  height: 86px;
   object-fit: contain;
   margin: 0 auto 20px;
 }
@@ -1230,6 +1232,18 @@ tr:nth-child(3n) .avatar {
   gap: 5px;
   flex-direction: column;
   min-width: 170px;
+}
+
+.order-product {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.order-product img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 
 .badge {
@@ -1555,7 +1569,9 @@ tr:nth-child(3n) .avatar {
 }
 
 .product-card {
-  display: block;
+  display: flex;
+  align-items: stretch;
+  position: relative;
   border: 1px solid #dfdfd3;
   border-radius: 7px;
   overflow: hidden;
@@ -1563,20 +1579,22 @@ tr:nth-child(3n) .avatar {
   box-shadow: 0 3px 0 #e7e6dd;
   padding: 0;
   min-width: 0;
+  min-height: 300px;
 }
 
 .product-photo {
-  height: 140px;
-  overflow: hidden;
-  background: #ab7a45;
-  display: grid;
-  place-items: center;
+  position: absolute;
+  top: 0;
+  inset: 0px 30px 40px 30px;
+  background: transparent;
+  pointer-events: none;
 }
 
 .product-photo img {
   width: 100%;
-  height: 140px;
+  height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 12px 10px rgb(6 86 138 / 32%));
 }
 
 .product-photo>svg {
@@ -1586,25 +1604,40 @@ tr:nth-child(3n) .avatar {
 }
 
 .product-card-body {
-  padding: 12px;
+  --product-card-padding: 12px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  width: 100%;
+  padding: var(--product-card-padding) var(--product-card-padding) 0;
 }
 
 .product-card label {
   display: block;
-  min-height: 44px;
+  min-height: 0;
   line-height: 1.5;
   font-size: 13px;
+}
+
+.product-card .product-price {
+  align-self: end;
 }
 
 .product-price {
   display: block;
   color: var(--green);
-  margin: 11px 0;
-  font-size: 16px;
+  margin: 0 0 10px;
+  font: 24px Bangers, sans-serif;
 }
 
 .product-card .quantity-control {
-  width: 100%;
+  align-self: end;
+  width: calc(100% + (var(--product-card-padding) * 2));
+  margin: 0 calc(var(--product-card-padding) * -1);
+  padding: 0 var(--product-card-padding);
+  border-top: 1px solid #d7ddd8;
   grid-template-columns: 34px minmax(0, 1fr) 34px;
   background: #eff0e9;
 }
@@ -2164,8 +2197,8 @@ tr:nth-child(3n) .avatar {
   }
 
   .brand-mascot {
-    width: 43px;
-    height: 53px;
+    width: 38px;
+    height: 38px;
   }
 
   .brand-name small {
@@ -2244,16 +2277,19 @@ tr:nth-child(3n) .avatar {
   }
 
   .product-card-body {
-    padding: 11px;
+    --product-card-padding: 11px;
   }
 
   .product-card label {
     font-size: 13px;
   }
 
-  .product-photo,
-  .product-photo img {
-    height: 132px;
+  .product-card {
+    min-height: 200px;
+  }
+
+  .product-photo {
+    inset: 0px 30px 40px 30px;
   }
 
   .order-receipt {

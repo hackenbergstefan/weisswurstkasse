@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#06568a">
   <title>{% block title %}Meine Runde{% endblock %} &middot; Die Wei&szlig;wurstmaschine</title>
-  <link rel="icon" href="{% static 'mascot.png' %}" type="image/png">
+  <link rel="icon" href="{% static 'weisswurst-logo.png' %}" type="image/png">
   <link rel="stylesheet" href="{% static 'app.css' %}">
   <script defer src="{% static 'vendor/lucide.min.js' %}"></script>
   <script defer src="{% static 'app.js' %}"></script>
@@ -16,8 +16,8 @@
 <body>
   <a class="skip-link" href="#main">Zum Inhalt</a>
   <header class="site-header">
-    <a class="brand" href="{% url 'dashboard' %}"><img class="brand-mascot" src="{% static 'mascot.png' %}" alt=""
-        width="53" height="65"><span class="brand-name"><small>Die</small>Wei&szlig;wurstmaschine.</span></a>
+    <a class="brand" href="{% url 'dashboard' %}"><img class="brand-mascot" src="{% static 'weisswurst-logo.png' %}"
+        alt="" width="44" height="44"><span class="brand-name"><small>Die</small>Wei&szlig;wurstmaschine.</span></a>
     {% if user.is_authenticated %}
     <nav class="main-nav" aria-label="Hauptnavigation">
       <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"
@@ -49,7 +49,8 @@
         href="{% url 'history' %}">Kontoverlauf</a>
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button"
           type="submit">Abmelden</button></form>
-    </div>{% endif %}</footer>
+    </div>{% endif %}
+  </footer>
 </body>
 
 </html>

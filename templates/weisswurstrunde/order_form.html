@@ -1,4 +1,4 @@
-{% load money static %}
+{% load money static product_images %}
 <form method="post" action="{% url 'edit_order' order.pk %}" class="order-form {% if can_edit %}order-layout{% endif %}"
   data-fixed-total="{{ fixed_total }}">
   {% csrf_token %}{{ form.version }}{{ form.non_field_errors }}
@@ -15,22 +15,14 @@
     </div>
     <div class="order-items product-cards">
       {% for row in rows %}
-      {% with name=row.product.name|lower %}
       <div class="order-item product-card">
         <div class="product-photo">
-          {% if 'brez' in name and 'wurst' in name %}<img src="{% static 'weisswurst-breze.png' %}"
-            alt="Wei&szlig;wurst mit Breze" width="759" height="755" loading="lazy">
-          {% elif 'brez' in name %}<img src="{% static 'breze.png' %}" alt="Breze" width="759" height="755"
-            loading="lazy">
-          {% elif 'leber' in name %}<img src="{% static 'leberkas.png' %}" alt="Leberk&auml;se in einer Semmel"
-            width="759" height="755" loading="lazy">
-          {% elif 'wurst' in name %}<img src="{% static 'weisswurst.png' %}" alt="Wei&szlig;wurst" width="759"
-            height="755" loading="lazy">
-          {% else %}<i data-lucide="utensils" aria-hidden="true"></i>{% endif %}
+          {% product_image row.product.name as image_url %}{% if image_url %}<img src="{{ image_url }}"
+            alt="{{ row.product.name }}" width="759" height="755" loading="lazy">{% else %}<i data-lucide="utensils"
+            aria-hidden="true"></i>{% endif %}
         </div>
         <div class="product-card-body"><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span
-            class="item-unit">pro {{ row.product.unit }}</span><strong
-            class="product-price">{{ row.product.price_cents|euros }}</strong>
+            class="product-price">{{ row.product.price_cents|euros }}</span>
           <div class="quantity-control"><button type="button" class="step-button" data-step="-1"
               aria-label="{{ row.product.name }} verringern" title="Verringern"><i data-lucide="minus"
                 aria-hidden="true"></i></button>{{ row.field }}<button type="button" class="step-button" data-step="1"
@@ -39,7 +31,6 @@
           {{ row.field.errors }}
         </div>
       </div>
-      {% endwith %}
       {% empty %}<p class="empty-state">Noch keine Produkte.{% if user.is_admin %} <a
           href="{% url 'products' %}">Sortiment anlegen</a>{% endif %}</p>{% endfor %}
     </div>

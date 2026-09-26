@@ -127,6 +127,10 @@ class AccountingTests(TestCase):
         self.assertIn("2 x Weisswurst", admin_message.body)
         self.assertIn("Gesamtmenge", admin_message.alternatives[0][0])
         self.assertIn("2 Weisswurst", admin_message.alternatives[0][0])
+        self.assertIn("weisswurst-logo.png", participant_message.alternatives[0][0])
+        self.assertIn("weisswurst-logo.png", admin_message.alternatives[0][0])
+        self.assertIn("weisswurst-neu.png", participant_message.alternatives[0][0])
+        self.assertIn("weisswurst-neu.png", admin_message.alternatives[0][0])
 
         mail.outbox.clear()
         with self.captureOnCommitCallbacks(execute=True):
