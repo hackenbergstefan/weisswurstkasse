@@ -35,10 +35,10 @@ for automatic event generation and PayPal reconciliation. The worker runs every
 
 ## Design
 
-The application uses a single **Die Weisswurstmaschine** design: blue and yellow,
+The application uses a single **Die Dein Stammtisch** design: blue and yellow,
 Bangers display type, a local Augsburg illustration, product cards and a live
 order receipt. There is no theme selector or browser-stored design preference.
-The reference is `design-previews/weisswurstmaschine.html`; its illustration
+The reference is `design-previews/Dein Stammtisch.html`; its illustration
 source remains in `design-previews/stammtisch-art.js`. Production uses exported
 PNG assets, so the artwork also works without JavaScript and under the existing
 Content Security Policy. Fonts, images and license details are in `static/ASSETS.md`.

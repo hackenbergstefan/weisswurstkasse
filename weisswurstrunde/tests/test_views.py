@@ -64,7 +64,7 @@ class ViewTests(TestCase):
             self.assertIn("no-store", response["Cache-Control"])
             self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
             self.assertIn("https://www.sandbox.paypal.com", response["Content-Security-Policy"])
-            self.assertContains(response, "Die Wei&szlig;wurstmaschine")
+            self.assertContains(response, "Dein Stammtisch")
             self.assertContains(response, 'src="/static/weisswurst-logo.png"')
             self.assertNotContains(response, "theme-select")
             self.assertNotContains(response, "themes.js")

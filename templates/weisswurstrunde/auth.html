@@ -7,7 +7,7 @@
   <img class="auth-mascot" src="{% static 'weisswurst-logo.png' %}" alt="" width="86" height="86">
   <p class="eyebrow">Ein Platz in der Runde</p>
   <h1>{% if registering %}Dein Platz am Stammtisch.{% else %}Servus! Deine Runde wartet.{% endif %}</h1>
-  <p class="muted">{% if registering %}Zusammen schmeckt's besser.{% else %}Bei der Wei&szlig;wurstmaschine
+  <p class="muted">{% if registering %}Zusammen schmeckt's besser.{% else %}Bei deinem Stammtisch
     anmelden{% endif %}</p>
   {% if limited %}<p class="message error" role="alert">Zu viele Versuche. Bitte in 15 Minuten erneut versuchen.</p>
   {% endif %}

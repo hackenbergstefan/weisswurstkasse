@@ -18,7 +18,7 @@
   https://creativecommons.org/licenses/by-sa/2.5/
 - `fonts/manrope.ttf`: Manrope variable font, SIL OFL 1.1; see `fonts/OFL.txt`.
 - `fonts/bangers.ttf`: Bangers by Vernon Adams, SIL OFL 1.1;
-  see `fonts/Bangers-OFL.txt`. Used for the Weisswurstmaschine display lettering.
+  see `fonts/Bangers-OFL.txt`. Used for the Dein Stammtisch display lettering.
   https://github.com/google/fonts/tree/main/ofl/bangers
 - `stammtisch.png`, `mascot.png`, `beer.png`: original project illustrations,
   exported from `design-previews/stammtisch-art.js` using the reference preview.
