@@ -1,265 +1,124 @@
-import copy
-import os
-import uuid
-from unittest import skipUnless
 from unittest.mock import patch
 
-import httpx
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
-from weisswurstrunde.models import LedgerEntry, PayPalPayment, User
-from weisswurstrunde.paypal import (
-    PayPalClient,
-    PayPalError,
-    cancel_payment,
-    create_payment,
-    process_webhook,
-    sync_payment,
-    verify_webhook,
-)
-from weisswurstrunde.services import manual_payment, reconcile
+from weisswurstrunde.models import LedgerEntry, Payout, PayPalPayment, User
+from weisswurstrunde.paypal import _apply_message, create_payment, parse_message, sync_mailbox
 
 
 @override_settings(
-    PAYPAL_CLIENT_ID="test-client",
-    PAYPAL_CLIENT_SECRET="test-secret",
-    PAYPAL_MERCHANT_ID="MERCHANT",
-    PAYPAL_WEBHOOK_ID="HOOK",
+    PAYPAL_ME_LINK="https://paypal.me/stammtisch",
+    PAYPAL_IMAP_HOST="imap.example.org",
+    PAYPAL_IMAP_PORT=993,
+    PAYPAL_IMAP_USER="paypal@example.org",
+    PAYPAL_IMAP_PASSWORD="secret",
+    PAYPAL_IMAP_FOLDER="INBOX",
 )
-class PayPalTests(TestCase):
+class PayPalMailTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
-            "test@example.org", "test-password", name="Test", paypal_email="different@example.org"
+            "test@example.org", "test-password", name="Test", paypal_email="buyer@example.org"
         )
-        self.payment = PayPalPayment.objects.create(
-            user=self.user, amount_cents=2000, purpose="TOPUP", order_id="ORDER"
-        )
-        self.data = {
-            "id": "ORDER",
-            "intent": "CAPTURE",
-            "status": "COMPLETED",
-            "purchase_units": [
-                {
-                    "custom_id": str(self.payment.pk),
-                    "payee": {"merchant_id": "MERCHANT"},
-                    "amount": {"currency_code": "EUR", "value": "20.00"},
-                    "payments": {
-                        "captures": [
-                            {
-                                "id": "CAPTURE",
-                                "status": "COMPLETED",
-                                "amount": {"currency_code": "EUR", "value": "20.00"},
-                            }
-                        ]
-                    },
-                }
-            ],
-        }
 
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_verified_credit_and_duplicate_callback(self, request):
-        request.return_value = self.data
-        sync_payment(self.payment.pk)
-        sync_payment(self.payment.pk)
-        process_webhook({"event_type": "PAYMENT.CAPTURE.COMPLETED", "resource": {"id": "CAPTURE"}})
+    def test_create_payment_uses_paypal_me_and_waits_for_mail(self):
+        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d5")
+        self.assertEqual(payment.status, PayPalPayment.Status.PENDING)
+        self.assertEqual(payment.approval_url, "https://paypal.me/stammtisch/20")
+
+    def test_invalid_payment_amount_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            create_payment(self.user, 0, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d6")
+
+    def test_incoming_mail_books_once(self):
+        raw = (
+            b"From: service@paypal.com\n"
+            b"Subject: Sie haben eine Zahlung erhalten\n"
+            b"Date: Tue, 29 Sep 2026 08:00:00 +0200\n"
+            b"Message-ID: <mail-1@example.org>\n\n"
+            b"Sie haben 20,00 EUR von buyer@example.org erhalten. "
+            b"Transaktionscode: 9ABCD123456\n"
+        )
+        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d7")
+        data = parse_message(raw, "1")
+        self.assertTrue(_apply_message(data))
+        self.assertFalse(_apply_message(data))
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, PayPalPayment.Status.COMPLETED)
         self.assertEqual(self.user.balance, 2000)
         self.assertEqual(LedgerEntry.objects.count(), 1)
-        self.assertEqual(reconcile(), [])
 
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_amount_currency_owner_and_merchant_mismatches(self, request):
-        for key, value in [
-            ("custom_id", "wrong"),
-            ("payee", {"merchant_id": "WRONG"}),
-            ("amount", {"currency_code": "USD", "value": "20.00"}),
-            ("amount", {"currency_code": "EUR", "value": "19.00"}),
-        ]:
-            data = copy.deepcopy(self.data)
-            data["purchase_units"][0][key] = value
-            request.return_value = data
-            with self.assertRaises(PayPalError):
-                sync_payment(self.payment.pk)
-        self.assertEqual(self.user.balance, 0)
-
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_pending_failed_then_delayed_completion(self, request):
-        for provider_status, expected in [
-            ("PENDING", "PENDING"),
-            ("DECLINED", "FAILED"),
-            ("COMPLETED", "COMPLETED"),
-        ]:
-            self.data["purchase_units"][0]["payments"]["captures"][0]["status"] = provider_status
-            request.return_value = self.data
-            result = sync_payment(self.payment.pk)
-            self.assertEqual(result.status, expected)
-        self.assertEqual(self.user.balance, 2000)
-
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_partial_and_full_refunds_are_append_only(self, request):
-        request.return_value = self.data
-        sync_payment(self.payment.pk)
-        payments = self.data["purchase_units"][0]["payments"]
-        payments["refunds"] = [
-            {
-                "id": "REFUND1",
-                "status": "COMPLETED",
-                "amount": {"currency_code": "EUR", "value": "5.00"},
-            }
-        ]
-        sync_payment(self.payment.pk)
-        sync_payment(self.payment.pk)
-        self.assertEqual(self.user.balance, 1500)
-        payments["refunds"].append(
-            {
-                "id": "REFUND2",
-                "status": "COMPLETED",
-                "amount": {"currency_code": "EUR", "value": "15.00"},
-            }
+    def test_outgoing_mail_completes_payout(self):
+        payout = Payout.objects.create(
+            amount_cents=1500,
+            method=Payout.Method.PAYPAL,
+            status=Payout.Status.PENDING,
+            recipient="recipient@example.org",
+            created_by=self.user,
         )
-        result = sync_payment(self.payment.pk)
-        self.assertEqual(result.status, "REFUNDED")
-        self.assertEqual(self.user.balance, 0)
-        self.assertEqual(LedgerEntry.objects.count(), 3)
-        self.assertEqual(reconcile(), [])
-
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_webhook_verification(self, request):
-        headers = {
-            name: "value"
-            for name in [
-                "PAYPAL-AUTH-ALGO",
-                "PAYPAL-CERT-URL",
-                "PAYPAL-TRANSMISSION-ID",
-                "PAYPAL-TRANSMISSION-SIG",
-                "PAYPAL-TRANSMISSION-TIME",
-            ]
+        data = {
+            "message_id": "<mail-2@example.org>",
+            "amount_cents": 1500,
+            "reference": "OUT12345678",
+            "text": "sie haben eine zahlung gesendet an recipient@example.org",
+            "recipient_name": "Recipient Name",
+            "recipient_email": "recipient@example.org",
+            "outgoing": True,
+            "received_at": payout.created_at,
         }
-        request.return_value = {"verification_status": "FAILURE"}
-        self.assertFalse(verify_webhook(headers, {"id": "EVENT"}))
-        request.return_value = {"verification_status": "SUCCESS"}
-        self.assertTrue(verify_webhook(headers, {"id": "EVENT"}))
-        self.assertFalse(verify_webhook({}, {}))
+        self.assertTrue(_apply_message(data))
+        payout.refresh_from_db()
+        imported = Payout.objects.exclude(pk=payout.pk).get()
+        self.assertEqual(imported.status, Payout.Status.COMPLETED)
+        self.assertEqual(imported.provider_batch_id, "OUT12345678")
+        self.assertIn("Recipient Name", imported.note)
+        self.assertIn("OUT12345678", imported.note)
 
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_outstanding_is_server_calculated_and_rechecked(self, request):
-        LedgerEntry.objects.create(
-            user=self.user, kind="ORDER", amount_cents=-1360, reference="test-order"
+    def test_outgoing_mail_extracts_recipient_name_and_email(self):
+        raw = (
+            b"Subject: You sent a payment\n\n"
+            b"You sent a payment to Max Mustermann (recipient@example.org) "
+            b"for 15.00 EUR. Transaction ID: OUT12345678\n"
         )
-        request.return_value = {
-            "id": "DEBT-ORDER",
-            "links": [
-                {
-                    "rel": "payer-action",
-                    "href": "https://www.sandbox.paypal.com/checkoutnow?token=DEBT-ORDER",
-                }
-            ],
-        }
-        payment = create_payment(self.user, 99999, "DEBT", uuid.uuid4())
-        self.assertEqual(payment.amount_cents, 1360)
-        manual_payment(self.user, 500, "CASH", "", uuid.uuid4())
-        request.return_value = {
-            "id": "DEBT-ORDER",
-            "intent": "CAPTURE",
-            "status": "APPROVED",
-            "purchase_units": [
-                {
-                    "custom_id": str(payment.pk),
-                    "payee": {"merchant_id": "MERCHANT"},
-                    "amount": {"currency_code": "EUR", "value": "13.60"},
-                }
-            ],
-        }
-        with self.assertRaises(ValidationError):
-            sync_payment(payment.pk, capture=True)
+        data = parse_message(raw, "3")
+        self.assertEqual(data["recipient_name"], "Max Mustermann")
+        self.assertEqual(data["recipient_email"], "recipient@example.org")
+        self.assertEqual(data["reference"], "OUT12345678")
 
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_cancelled_payment_does_not_credit(self, request):
-        self.data["status"] = "VOIDED"
-        self.data["purchase_units"][0].pop("payments")
-        request.return_value = self.data
-        payment = sync_payment(self.payment.pk)
-        self.assertEqual(payment.status, "CANCELLED")
-        self.assertEqual(self.user.balance, 0)
-
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_approved_payment_capture_then_verify(self, request):
-        approved = copy.deepcopy(self.data)
-        approved["status"] = "APPROVED"
-        approved["purchase_units"][0].pop("payments")
-        request.side_effect = [approved, {}, self.data]
-        sync_payment(self.payment.pk, capture=True)
-        self.assertEqual(self.user.balance, 2000)
-        self.assertEqual(
-            request.call_args_list[1].args[:2], ("POST", "/v2/checkout/orders/ORDER/capture")
+    def test_paypal_html_mail_extracts_visible_recipient_and_reference(self):
+        raw = (
+            b"Subject: Du hast eine Zahlung gesendet\n\n"
+            b"<html><style>.x { color: red; }</style><body>"
+            b"<p>Du hast 2,00&nbsp;&euro;&nbsp;EUR an Stefan Hackenberg gesendet</p>"
+            b"<strong>Transaktionscode</strong><a>6DE43837HX011215V</a>"
+            b"</body></html>"
         )
+        data = parse_message(raw, "4")
+        self.assertEqual(data["amount_cents"], 200)
+        self.assertEqual(data["recipient_name"], "Stefan Hackenberg")
+        self.assertEqual(data["recipient_email"], "")
+        self.assertEqual(data["reference"], "6DE43837HX011215V")
 
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_closed_checkout_never_captures_but_recognizes_late_receipt(self, request):
-        approved = copy.deepcopy(self.data)
-        approved["status"] = "APPROVED"
-        approved["purchase_units"][0].pop("payments")
-        request.return_value = approved
-        self.assertEqual(cancel_payment(self.payment.pk).status, "CANCELLED")
-        sync_payment(self.payment.pk, capture=True)
-        self.assertTrue(all(call.args[0] == "GET" for call in request.call_args_list))
-        self.assertEqual(self.user.balance, 0)
-        request.return_value = self.data
-        sync_payment(self.payment.pk)
-        self.assertEqual(self.user.balance, 2000)
-        with self.assertRaises(ValidationError):
-            cancel_payment(self.payment.pk)
-
-    @patch("weisswurstrunde.paypal.PayPalClient.request")
-    def test_same_capture_cannot_credit_different_payment(self, request):
-        request.return_value = self.data
-        sync_payment(self.payment.pk)
-        other = PayPalPayment.objects.create(
-            user=self.user, amount_cents=2000, purpose="TOPUP", order_id="OTHER"
+    @patch("weisswurstrunde.paypal.imaplib.IMAP4_SSL")
+    def test_mailbox_reads_messages(self, imap_class):
+        raw = (
+            b"From: service@paypal.com\nSubject: You received a payment\n"
+            b"Message-ID: <mail-3@example.org>\n\n"
+            b"You received 20.00 EUR from buyer@example.org.\n"
         )
-        self.data["id"] = "OTHER"
-        self.data["purchase_units"][0]["custom_id"] = str(other.pk)
-        with self.assertRaises(PayPalError):
-            sync_payment(other.pk)
-        self.assertEqual(self.user.balance, 2000)
+        create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d8")
+        mailbox = imap_class.return_value
+        mailbox.search.return_value = ("OK", [b"1"])
+        mailbox.fetch.return_value = ("OK", [(b"header", raw), b")"])
+        mailbox.move.return_value = ("OK", [b"1"])
+        self.assertEqual(sync_mailbox(), 1)
+        mailbox.move.assert_called_once_with(b"1", "Einzahlungen.1-test")
+        self.assertEqual(sync_mailbox(), 0)
 
-    def test_http_adapter_uses_server_oauth_and_request_id(self):
-        calls = []
-
-        def respond(request):
-            calls.append(request)
-            if request.url.path == "/v1/oauth2/token":
-                return httpx.Response(200, json={"access_token": "test-access-token"})
-            return httpx.Response(200, json={"id": "SERVER-ORDER"})
-
-        client = httpx.Client(
-            base_url="https://api-m.sandbox.paypal.com", transport=httpx.MockTransport(respond)
-        )
-        with patch("weisswurstrunde.paypal.httpx.Client", return_value=client):
-            result = PayPalClient().request(
-                "POST", "/v2/checkout/orders", {}, request_id="test-idempotency"
-            )
-        self.assertEqual(result["id"], "SERVER-ORDER")
-        self.assertTrue(calls[0].headers["Authorization"].startswith("Basic "))
-        self.assertEqual(calls[1].headers["Authorization"], "Bearer test-access-token")
-        self.assertEqual(calls[1].headers["PayPal-Request-Id"], "test-idempotency")
-
-
-@skipUnless(
-    os.environ.get("RUN_PAYPAL_SANDBOX_TESTS") == "true", "Real sandbox credentials not enabled"
-)
-class SandboxSmokeTests(TestCase):
-    def test_create_sandbox_checkout_without_capture(self):
-        self.assertEqual(settings.PAYPAL_ENVIRONMENT, "sandbox")
-        self.assertEqual(settings.PAYPAL_API_BASE, "https://api-m.sandbox.paypal.com")
-        user = User.objects.create_user(
-            "sandbox-test@example.test",
-            "sandbox-test-password",
-            name="Sandbox",
-            paypal_email="sandbox-buyer@example.test",
-        )
-        payment = create_payment(user, 100, "TOPUP", uuid.uuid4())
-        self.assertTrue(payment.order_id)
-        self.assertTrue(payment.approval_url.startswith("https://www.sandbox.paypal.com/"))
-        self.assertEqual(user.balance, 0)
+    @override_settings(PAYPAL_IMAP_USE_SSL=False, PAYPAL_IMAP_USE_TLS=True)
+    @patch("weisswurstrunde.paypal.imaplib.IMAP4")
+    def test_mailbox_can_use_starttls(self, imap_class):
+        mailbox = imap_class.return_value
+        mailbox.search.return_value = ("OK", [b""])
+        self.assertEqual(sync_mailbox(), 0)
+        mailbox.starttls.assert_called_once_with()

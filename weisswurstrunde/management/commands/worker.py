@@ -8,13 +8,13 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from weisswurstrunde.models import LoginAttempt
-from weisswurstrunde.paypal import enabled
+from weisswurstrunde.paypal import mailbox_enabled
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Generate events and reconcile PayPal every 15 minutes. Run exactly one worker."
+    help = "Generate events and reconcile PayPal mail every 15 minutes. Run exactly one worker."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")
@@ -24,7 +24,7 @@ class Command(BaseCommand):
             close_old_connections()
             try:
                 call_command("generate_events")
-                call_command("reconcile", paypal=enabled())
+                call_command("reconcile", paypal=mailbox_enabled())
                 LoginAttempt.objects.filter(
                     window_start__lt=timezone.now() - timedelta(days=1)
                 ).delete()

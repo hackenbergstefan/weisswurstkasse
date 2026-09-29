@@ -10,7 +10,6 @@ from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.utils import timezone
 
-from . import paypal
 from .models import (
     DefaultItem,
     Event,
@@ -193,14 +192,7 @@ def create_payout(amount_cents, method, recipient, note, actor):
         created_by=actor,
         status=Payout.Status.COMPLETED if method == Payout.Method.CASH else Payout.Status.PENDING,
     )
-    if method == Payout.Method.PAYPAL:
-        try:
-            payout.provider_batch_id = paypal.create_payout(payout)
-        except (paypal.PayPalError, ValidationError):
-            payout.status = Payout.Status.FAILED
-            payout.save(update_fields=["status"])
-            return payout
-    payout.save(update_fields=["provider_batch_id"])
+    payout.save(update_fields=["status", "provider_batch_id"])
     return payout
 
 
@@ -379,7 +371,16 @@ def reconcile():
             issues.append(f"Order {order.pk}: ledger {booked}, expected {-order.total}")
     for user in User.objects.all():
         for payment in user.paypal_payments.all():
-            expected = payment.amount_cents - payment.refunded_cents if payment.capture_id else 0
+            expected = (
+                payment.amount_cents - payment.refunded_cents
+                if payment.status
+                in {
+                    "COMPLETED",
+                    "PARTIALLY_REFUNDED",
+                    "REFUNDED",
+                }
+                else 0
+            )
             actual = payment.entries.aggregate(total=Sum("amount_cents"))["total"] or 0
             if expected != actual:
                 issues.append(f"PayPal {payment.pk}: ledger {actual}, expected {expected}")

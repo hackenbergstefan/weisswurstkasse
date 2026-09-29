@@ -81,19 +81,16 @@ LEBERKAESE_WEEKDAY = int(os.environ.get("LEBERKAESE_WEEKDAY", "4"))
 DEADLINE_DAYS_BEFORE = int(os.environ.get("DEADLINE_DAYS_BEFORE", "1"))
 DEADLINE_TIME = os.environ.get("DEADLINE_TIME", "18:00")
 UPCOMING_WEEKS = max(8, int(os.environ.get("UPCOMING_WEEKS", "8")))
-PAYPAL_ENVIRONMENT = os.environ.get("PAYPAL_ENVIRONMENT", "sandbox")
-if PAYPAL_ENVIRONMENT not in {"sandbox", "live"}:
-    raise ImproperlyConfigured("PAYPAL_ENVIRONMENT must be sandbox or live.")
-PAYPAL_API_BASE = os.environ.get(
-    "PAYPAL_API_BASE",
-    "https://api-m.paypal.com"
-    if PAYPAL_ENVIRONMENT == "live"
-    else "https://api-m.sandbox.paypal.com",
-)
-PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID", "")
-PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET", "")
-PAYPAL_MERCHANT_ID = os.environ.get("PAYPAL_MERCHANT_ID", "")
-PAYPAL_WEBHOOK_ID = os.environ.get("PAYPAL_WEBHOOK_ID", "")
+PAYPAL_ME_LINK = os.environ.get("PAYPAL_ME_LINK", "")
+PAYPAL_IMAP_HOST = os.environ.get("PAYPAL_IMAP_HOST", "")
+PAYPAL_IMAP_PORT = int(os.environ.get("PAYPAL_IMAP_PORT", "993"))
+PAYPAL_IMAP_USER = os.environ.get("PAYPAL_IMAP_USER", "")
+PAYPAL_IMAP_PASSWORD = os.environ.get("PAYPAL_IMAP_PASSWORD", "")
+PAYPAL_IMAP_FOLDER = os.environ.get("PAYPAL_IMAP_FOLDER", "INBOX")
+PAYPAL_IMAP_USE_TLS = os.environ.get("PAYPAL_IMAP_USE_TLS", "false").lower() == "true"
+PAYPAL_IMAP_USE_SSL = os.environ.get("PAYPAL_IMAP_USE_SSL", "true").lower() == "true"
+if PAYPAL_IMAP_USE_TLS and PAYPAL_IMAP_USE_SSL:
+    raise ImproperlyConfigured("PAYPAL_IMAP_USE_TLS and PAYPAL_IMAP_USE_SSL cannot both be true.")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
 EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")
@@ -106,3 +103,15 @@ if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be true.")
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "weisswurstrunde@localhost")
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "loggers": {
+        "weisswurstrunde.paypal": {
+            "handlers": ["console"],
+            "level": "DEBUG",
+            "propagate": False,
+        }
+    },
+}

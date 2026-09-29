@@ -1,5 +1,4 @@
 import hashlib
-import json
 import uuid
 from datetime import timedelta
 
@@ -17,7 +16,6 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from . import paypal, services
@@ -508,20 +506,15 @@ def payments(request):
             payout_form = PayoutForm(request.POST)
             if payout_form.is_valid():
                 try:
-                    payout = services.create_payout(
+                    services.create_payout(
                         payout_form.cents,
-                        payout_form.cleaned_data["method"],
-                        payout_form.cleaned_data["recipient"],
+                        Payout.Method.CASH,
+                        "",
                         payout_form.cleaned_data["note"],
                         request.user,
                     )
-                    if payout.status == Payout.Status.FAILED:
-                        payout_form.add_error(
-                            None, "PayPal-Auszahlung konnte nicht angelegt werden."
-                        )
-                    else:
-                        messages.success(request, "Auszahlung angelegt.")
-                        return redirect("payments")
+                    messages.success(request, "Bargeldauszahlung angelegt.")
+                    return redirect("payments")
                 except (paypal.PayPalError, ValidationError) as error:
                     payout_form.add_error(None, error_message(error))
     else:
@@ -587,74 +580,11 @@ def payments(request):
 def paypal_sync(request, payment_id):
     payment = get_object_or_404(PayPalPayment, pk=payment_id, user=request.user)
     try:
-        payment = paypal.sync_payment(payment.pk, capture=True)
-        messages.success(request, f"PayPal: {payment.get_status_display()}.")
+        payment = paypal.sync_payment(payment.pk)
+        messages.success(request, f"PayPal-Mailabgleich: {payment.get_status_display()}.")
     except (paypal.PayPalError, ValidationError) as error:
         messages.error(request, error_message(error))
     return redirect("payments")
-
-
-@login_required
-@require_GET
-def paypal_return(request):
-    messages.info(request, "PayPal-Freigabe erhalten. Bitte die Zahlung abschliessen und pruefen.")
-    return redirect("payments")
-
-
-@login_required
-@require_POST
-def paypal_close(request, payment_id):
-    payment = get_object_or_404(PayPalPayment, pk=payment_id, user=request.user)
-    try:
-        paypal.cancel_payment(payment.pk)
-        messages.success(request, "PayPal-Vorgang geschlossen. Es wurde nichts neu abgebucht.")
-    except (paypal.PayPalError, ValidationError) as error:
-        messages.error(request, error_message(error))
-    return redirect("payments")
-
-
-@login_required
-@require_POST
-def paypal_retry(request, payment_id):
-    payment = get_object_or_404(PayPalPayment, pk=payment_id, user=request.user, status="CREATED")
-    try:
-        payment = paypal.create_payment(
-            request.user, payment.amount_cents, payment.purpose, payment.pk
-        )
-        request.session["paypal_payment"] = str(payment.pk)
-        return redirect(payment.approval_url)
-    except (paypal.PayPalError, ValidationError) as error:
-        messages.error(request, error_message(error))
-    return redirect("payments")
-
-
-@login_required
-@require_GET
-def paypal_cancel(request):
-    messages.info(
-        request,
-        "PayPal-Vorgang abgebrochen. Es wurde kein Guthaben auf Basis dieser Rueckkehr gebucht.",
-    )
-    return redirect("payments")
-
-
-@csrf_exempt
-@require_POST
-def paypal_webhook(request):
-    if len(request.body) > 262144:
-        return HttpResponse(status=413)
-    try:
-        event = json.loads(request.body)
-        if not isinstance(event, dict):
-            return HttpResponse(status=400)
-        if not paypal.verify_webhook(request.headers, event):
-            return HttpResponse(status=403)
-        paypal.process_webhook(event)
-    except (ValueError, TypeError, KeyError, AttributeError):
-        return HttpResponse(status=400)
-    except (paypal.PayPalError, ValidationError, IntegrityError):
-        return HttpResponse(status=503)
-    return HttpResponse(status=204)
 
 
 @login_required

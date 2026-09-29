@@ -1,6 +1,5 @@
 import uuid
 from datetime import timedelta
-from unittest.mock import patch
 
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -63,7 +62,6 @@ class ViewTests(TestCase):
             self.assertEqual(response.status_code, 200, path)
             self.assertIn("no-store", response["Cache-Control"])
             self.assertIn("frame-ancestors 'none'", response["Content-Security-Policy"])
-            self.assertIn("https://www.sandbox.paypal.com", response["Content-Security-Policy"])
             self.assertContains(response, "Dein Stammtisch")
             self.assertContains(response, 'src="/static/weisswurst-logo.png"')
             self.assertNotContains(response, "theme-select")
@@ -362,14 +360,12 @@ class ViewTests(TestCase):
     def test_paypal_actions_require_ownership_and_post(self):
         payment = PayPalPayment.objects.create(user=self.other, amount_cents=1000, purpose="TOPUP")
         self.client.force_login(self.user)
-        for action in ["sync", "retry", "close"]:
+        for action in ["retry", "close"]:
             path = f"/paypal/{payment.pk}/{action}/"
             self.assertEqual(self.client.post(path).status_code, 404)
-            self.assertEqual(self.client.get(path).status_code, 405)
-        self.client.force_login(self.other)
-        self.assertEqual(self.client.post(f"/paypal/{payment.pk}/close/").status_code, 302)
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, "CANCELLED")
+        path = f"/paypal/{payment.pk}/sync/"
+        self.assertEqual(self.client.post(path).status_code, 404)
+        self.assertEqual(self.client.get(path).status_code, 405)
 
     def test_login_logout_and_invalid_login(self):
         self.assertEqual(self.client.get("/login/").status_code, 200)
@@ -630,31 +626,17 @@ class ViewTests(TestCase):
         self.assertEqual(payout.amount_cents, 500)
         self.assertContains(self.client.get("/payments/"), "Auszahlungen")
 
-    @patch("weisswurstrunde.paypal.create_payout", return_value="BATCH-1")
-    def test_admin_can_start_paypal_payout(self, create_payout):
+    def test_admin_can_start_paypal_payout(self):
         self.user.is_admin = True
         self.user.save()
         self.client.force_login(self.user)
-        response = self.client.post(
-            "/payments/",
-            {
-                "action": "payout",
-                "amount": "5.00",
-                "method": "PAYPAL",
-                "recipient": "recipient@example.org",
-                "note": "PayPal",
-            },
-        )
-        self.assertRedirects(response, "/payments/")
-        payout = Payout.objects.get()
-        self.assertEqual(payout.status, Payout.Status.PENDING)
-        self.assertEqual(payout.provider_batch_id, "BATCH-1")
-        create_payout.assert_called_once()
+        response = self.client.get("/payments/")
+        self.assertContains(response, "https://www.paypal.com/myaccount/transfer/send")
+        self.assertEqual(Payout.objects.count(), 0)
 
-    @patch("weisswurstrunde.views.paypal.verify_webhook", return_value=False)
-    def test_invalid_webhook_rejected(self, verify):
+    def test_paypal_webhook_endpoint_is_removed(self):
         response = self.client.post(
             "/paypal/webhook/", {"id": "FAKE"}, content_type="application/json"
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 404)
         self.assertEqual(self.user.balance, 0)

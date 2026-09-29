@@ -102,9 +102,15 @@ All settings are environment-driven; see `deployment.example` and
 | `DEADLINE_DAYS_BEFORE` | `1`                                                                     |
 | `DEADLINE_TIME`        | `18:00`, local timezone                                                 |
 | `UPCOMING_WEEKS`       | `8`, minimum 8                                                          |
-| `PUBLIC_BASE_URL`      | Canonical URL used for PayPal redirects                                 |
-| `PAYPAL_ENVIRONMENT`   | `sandbox` or `live`                                                     |
-| `PAYPAL_API_BASE`      | Optional override; environment-specific official API by default         |
+| `PUBLIC_BASE_URL`       | Canonical URL used for asset and email links                            |
+| `PAYPAL_ME_LINK`       | PayPal.me link of the receiving account                                  |
+| `PAYPAL_IMAP_HOST`     | IMAP server receiving PayPal notifications                               |
+| `PAYPAL_IMAP_PORT`     | IMAP SSL port, defaults to `993`                                         |
+| `PAYPAL_IMAP_USER`     | IMAP login                                                                |
+| `PAYPAL_IMAP_PASSWORD` | IMAP password                                                             |
+| `PAYPAL_IMAP_FOLDER`   | IMAP folder, defaults to `INBOX`                                         |
+| `PAYPAL_IMAP_USE_TLS`  | Enable IMAP STARTTLS, mutually exclusive with SSL                        |
+| `PAYPAL_IMAP_USE_SSL`  | Enable implicit IMAP TLS, defaults to `true`                              |
 | `EMAIL_HOST`           | SMTP server hostname                                                     |
 | `EMAIL_PORT`           | SMTP server port, defaults to `25`                                      |
 | `EMAIL_HOST_USER`      | SMTP login user                                                          |
@@ -161,7 +167,7 @@ fixed after creation so existing orders and defaults cannot change categories.
 - The immutable ledger is authoritative. There is no cached balance to drift.
   A manual correction creates one opposite entry; record a replacement payment
   separately when needed. Orders and PayPal entries cannot be manually reversed.
-- Event generation, manual submission, PayPal capture and refunds are idempotent.
+- Event generation, manual submission and PayPal-Mailabgleich are idempotent.
   User-row locks serialize balance-affecting operations. SQLite uses immediate
   write transactions and a busy timeout.
 
@@ -170,53 +176,32 @@ uv run python manage.py reconcile
 uv run python manage.py reconcile --paypal
 ```
 
-Reconciliation compares order totals and recorded PayPal principal/refunds against
-their ledger entries. It fails with a nonzero exit code on mismatch. With
-`--paypal`, provider data is refreshed first, including delayed confirmations and
-refunds. Reconciliation never rewrites historic entries. Database access itself
-must be restricted; application immutability is not protection against an operator
-directly modifying the database.
+Reconciliation compares order totals and recorded PayPal entries against their
+ledger entries. With `--paypal`, the configured IMAP mailbox is read and matching
+incoming payments and outgoing payouts are recorded idempotently. Reconciliation
+never rewrites historic entries.
 
 ## PayPal setup
 
-1. Create a PayPal REST app for the single receiving merchant account. Set
-   `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_MERCHANT_ID` and
-   `PAYPAL_ENVIRONMENT=sandbox` initially.
-2. Set `PUBLIC_BASE_URL` to your public HTTPS URL. Register a webhook at
-   `https://your-domain/paypal/webhook/` and put its ID in `PAYPAL_WEBHOOK_ID`.
-3. Subscribe to `CHECKOUT.ORDER.APPROVED`, `CHECKOUT.ORDER.COMPLETED`,
-   `PAYMENT.CAPTURE.COMPLETED`, `PAYMENT.CAPTURE.PENDING`,
-   `PAYMENT.CAPTURE.DENIED` and `PAYMENT.CAPTURE.REFUNDED`.
-4. Test with a **different sandbox buyer account**. Initiate a top-up in **Kasse**,
-   approve it at PayPal, and use **Abschliessen & pruefen** after returning.
-   A verified approved webhook or the worker can also finish the capture.
-5. Check duplicate delivery, pending-to-completed transitions, partial/full
-   refunds from the merchant dashboard, and `reconcile --paypal`.
-6. For production, change to `live` and use the corresponding live app, merchant,
-   webhook ID and credentials. Never send real funds to validate sandbox code.
+1. Create a PayPal.me link for the receiving account and set `PAYPAL_ME_LINK`.
+2. Configure an IMAP mailbox that receives PayPal notifications with
+  `PAYPAL_IMAP_HOST`, `PAYPAL_IMAP_PORT`, `PAYPAL_IMAP_USER`,
+  `PAYPAL_IMAP_PASSWORD` and optionally `PAYPAL_IMAP_FOLDER`.
+3. A participant starts a payment in **Kasse**, follows the generated PayPal.me
+  link and then uses **PayPal-Mail prüfen**. The worker also runs this check every
+  15 minutes. The stored PayPal email and amount must identify one open payment.
+4. Admins use the PayPal link in the separate **PayPal-Auszahlung** section and
+  send the payment manually. Every matching outgoing PayPal notification creates
+  a completed payout automatically, including recipient name and transaction code
+  in its note.
+5. Successfully matched incoming messages are moved to
+  `Einzahlungen/<User-ID>-<Name>`. Outgoing messages are moved to `Auszahlungen`;
+  both folders are created automatically when needed.
 
-Browser return/cancel URLs never credit money. Webhooks are CSRF-exempt only at
-their exact endpoint, and must pass PayPal's server-side signature verification.
-The backend then fetches the associated order and verifies merchant ID, local
-payment UUID, amount and EUR currency before posting a unique capture reference.
-Refunds are separate negative entries keyed by provider refund ID. Retried and
-out-of-order events cannot duplicate a credit. Unknown matching notifications
-return a retryable status, and the worker provides independent reconciliation.
-
-Outstanding-balance amounts are calculated server-side and checked again before
-capture. If another payment reduces the debt during checkout, the old checkout
-cannot be captured; start a new payment. Choosing a top-up explicitly permits
-additional credit. Stored PayPal email is separate from login email; payment
-assignment uses the local payment ID, never an untrusted email match.
-
-Only the backend receives API credentials. Do not log request bodies, cookies,
-authorization headers, or full PayPal return URLs at the reverse proxy. PayPal
-adds its own temporary order token to redirects; the application ignores it and
-redirects to a clean local page. No password or API secret is placed in a URL.
-
-PayPal network verification cannot be fully certified without operator-provided
-sandbox credentials and buyer approval. Automated provider-contract tests use
-mocked responses; complete the above real sandbox checklist before production.
+PayPal redirects, browser state and self-reported payment forms never credit the
+ledger. Only a matching message from the configured mailbox does that. Message
+IDs and provider references are stored so repeated IMAP scans cannot duplicate
+ledger entries. Ambiguous amount matches are left pending for manual resolution.
 
 ## Backups and restoration
 
@@ -251,23 +236,9 @@ docker build -t weisswurstrunde .
 
 Tests cover authentication, invitation/uniqueness checks, CSRF and access control,
 order deadlines and price snapshots, default propagation, amount validation,
-immutable accounting and corrections, PayPal states/refunds/idempotence, webhook
-verification, reconciliation, command idempotence and backups. CI runs on Python
+immutable accounting and corrections, PayPal mail matching/idempotence,
+reconciliation, command idempotence and backups. CI runs on Python
 3.13 and builds the container. Ordinary tests do not send money or call PayPal.
-
-### Sandbox smoke test
-
-The real sandbox smoke test is opt-in. With your sandbox credentials already in
-the environment:
-
-```fish
-env RUN_PAYPAL_SANDBOX_TESTS=true uv run python manage.py test weisswurstrunde.tests.test_paypal.SandboxSmokeTests
-```
-
-It creates an unapproved sandbox checkout without capturing money. The manual
-buyer-approval and webhook checklist above is still required before production.
-Closing an unfinished checkout in the UI prevents further automatic capture;
-any genuinely received payment subsequently verified by PayPal is still booked.
 
 ## License and assets
 

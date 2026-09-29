@@ -1,13 +1,23 @@
+import email
+import hashlib
+import html
+import imaplib
+import logging
+import re
 from decimal import Decimal, InvalidOperation
-from urllib.parse import quote, urlparse
+from email import policy
+from email.header import decode_header, make_header
+from email.utils import parsedate_to_datetime
 
-import httpx
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.utils import timezone
+from django.utils.text import slugify
 
 from .models import LedgerEntry, Payout, PayPalPayment, User
+
+logger = logging.getLogger(__name__)
 
 
 class PayPalError(Exception):
@@ -15,63 +25,27 @@ class PayPalError(Exception):
 
 
 def enabled():
+    return bool(settings.PAYPAL_ME_LINK)
+
+
+def mailbox_enabled():
     return bool(
-        settings.PAYPAL_CLIENT_ID and settings.PAYPAL_CLIENT_SECRET and settings.PAYPAL_MERCHANT_ID
+        settings.PAYPAL_IMAP_HOST and settings.PAYPAL_IMAP_USER and settings.PAYPAL_IMAP_PASSWORD
     )
 
 
 def money(cents):
-    return f"{cents // 100}.{cents % 100:02d}"
+    return f"{cents // 100},{cents % 100:02d}"
 
 
-def parse_money(amount):
-    try:
-        if amount["currency_code"] != "EUR" or not isinstance(amount["value"], str):
-            raise PayPalError("Unexpected payment currency or value.")
-        cents = Decimal(amount["value"]) * 100
-        if not cents.is_finite() or cents != cents.to_integral_value() or not 0 < cents <= 1000000:
-            raise PayPalError("Invalid payment amount.")
-        return int(cents)
-    except (KeyError, TypeError, InvalidOperation) as error:
-        raise PayPalError("Invalid payment amount.") from error
-
-
-class PayPalClient:
-    def __init__(self):
-        if not enabled():
-            raise PayPalError("PayPal ist noch nicht konfiguriert.")
-
-    def request(self, method, path, body=None, request_id=None):
-        try:
-            with httpx.Client(base_url=settings.PAYPAL_API_BASE, timeout=20) as client:
-                token_response = client.post(
-                    "/v1/oauth2/token",
-                    data={"grant_type": "client_credentials"},
-                    auth=(settings.PAYPAL_CLIENT_ID, settings.PAYPAL_CLIENT_SECRET),
-                )
-                token_response.raise_for_status()
-                headers = {
-                    "Authorization": f"Bearer {token_response.json()['access_token']}",
-                    "Prefer": "return=representation",
-                }
-                if request_id:
-                    headers["PayPal-Request-Id"] = request_id
-                response = client.request(method, path, json=body, headers=headers)
-                response.raise_for_status()
-                return response.json()
-        except (httpx.HTTPError, ValueError, KeyError) as error:
-            raise PayPalError(
-                "PayPal konnte nicht bestaetigt werden. Bitte spaeter erneut pruefen."
-            ) from error
-
-
-def order_path(payment):
-    if not payment.order_id:
-        raise PayPalError("PayPal-Auftrag wurde noch nicht erstellt.")
-    return f"/v2/checkout/orders/{quote(payment.order_id, safe='')}"
+def _paypal_me_url(amount_cents):
+    amount = str(amount_cents // 100) if amount_cents % 100 == 0 else money(amount_cents)
+    return f"{settings.PAYPAL_ME_LINK.rstrip('/')}/{amount}"
 
 
 def create_payment(user, amount_cents, purpose, request_id):
+    if not enabled():
+        raise PayPalError("PayPal.me ist noch nicht konfiguriert.")
     if purpose not in {"TOPUP", "DEBT"}:
         raise ValidationError("Unbekannter Zahlungszweck.")
     with transaction.atomic():
@@ -89,275 +63,314 @@ def create_payment(user, amount_cents, purpose, request_id):
             ):
                 raise ValidationError("Der Betrag muss zwischen 0,01 und 10.000,00 EUR liegen.")
             payment = PayPalPayment.objects.create(
-                id=request_id, user=user, amount_cents=amount_cents, purpose=purpose
+                id=request_id,
+                user=user,
+                amount_cents=amount_cents,
+                purpose=purpose,
+                status=PayPalPayment.Status.PENDING,
+                approval_url=_paypal_me_url(amount_cents),
             )
         elif payment.purpose != purpose or (
             purpose == "TOPUP" and payment.amount_cents != amount_cents
         ):
             raise ValidationError("Diese Zahlungsanfrage wurde bereits anders verwendet.")
-    if payment.order_id:
-        return payment
-    client = PayPalClient()
-    data = client.request(
-        "POST",
-        "/v2/checkout/orders",
-        {
-            "intent": "CAPTURE",
-            "purchase_units": [
-                {
-                    "reference_id": str(payment.pk),
-                    "custom_id": str(payment.pk),
-                    "invoice_id": str(payment.pk),
-                    "payee": {"merchant_id": settings.PAYPAL_MERCHANT_ID},
-                    "amount": {"currency_code": "EUR", "value": money(payment.amount_cents)},
-                }
-            ],
-            "payment_source": {
-                "paypal": {
-                    "experience_context": {
-                        "brand_name": "Weisswurstrunde",
-                        "shipping_preference": "NO_SHIPPING",
-                        "user_action": "PAY_NOW",
-                        "return_url": f"{settings.PUBLIC_BASE_URL}/paypal/return/",
-                        "cancel_url": f"{settings.PUBLIC_BASE_URL}/paypal/cancel/",
-                    }
-                }
-            },
-        },
-        request_id=f"create-{payment.pk}",
-    )
-    approval = next(
-        (
-            link["href"]
-            for link in data.get("links", [])
-            if link.get("rel") in {"approve", "payer-action"}
-        ),
-        "",
-    )
-    parsed = urlparse(approval)
-    expected_host = (
-        "www.paypal.com" if settings.PAYPAL_ENVIRONMENT == "live" else "www.sandbox.paypal.com"
-    )
-    if not data.get("id") or parsed.scheme != "https" or parsed.hostname != expected_host:
-        raise PayPalError("PayPal hat keine gueltige Freigabe-URL geliefert.")
-    with transaction.atomic():
-        payment = PayPalPayment.objects.select_for_update().get(pk=payment.pk)
-        payment.order_id = data["id"]
-        payment.approval_url = approval
-        payment.save(update_fields=["order_id", "approval_url", "updated_at"])
     return payment
 
 
-def create_payout(payout):
-    if payout.method != Payout.Method.PAYPAL:
-        raise PayPalError("Ungültige Auszahlungsmethode.")
-    data = PayPalClient().request(
-        "POST",
-        "/v1/payments/payouts",
-        {
-            "sender_batch_header": {
-                "sender_batch_id": f"payout-{payout.pk}",
-                "email_subject": "Auszahlung aus der Weisswurstrunde",
-            },
-            "items": [
-                {
-                    "recipient_type": "EMAIL",
-                    "amount": {"value": money(payout.amount_cents), "currency": "EUR"},
-                    "receiver": payout.recipient,
-                    "note": payout.note or "Auszahlung aus der Weisswurstrunde",
-                    "sender_item_id": str(payout.pk),
-                }
-            ],
-        },
-        request_id=f"payout-{payout.pk}",
-    )
-    batch_id = data.get("batch_header", {}).get("payout_batch_id")
-    if not batch_id:
-        raise PayPalError("PayPal hat keine Auszahlungs-ID geliefert.")
-    return batch_id
+def _decode(value):
+    return str(make_header(decode_header(value or "")))
 
 
-def validate_order(payment, data):
-    try:
-        units = data["purchase_units"]
-        if data["id"] != payment.order_id or data["intent"] != "CAPTURE" or len(units) != 1:
-            raise PayPalError("Unexpected PayPal order.")
-        unit = units[0]
-        if (
-            unit["custom_id"] != str(payment.pk)
-            or unit["payee"]["merchant_id"] != settings.PAYPAL_MERCHANT_ID
-            or parse_money(unit["amount"]) != payment.amount_cents
-        ):
-            raise PayPalError("PayPal order does not match the local payment.")
-        return unit
-    except (KeyError, TypeError, IndexError) as error:
-        raise PayPalError("Incomplete PayPal order.") from error
-
-
-@transaction.atomic
-def sync_payment(payment_id, capture=False):
-    initial = PayPalPayment.objects.get(pk=payment_id)
-    user = User.objects.select_for_update().get(pk=initial.user_id)
-    payment = PayPalPayment.objects.select_for_update().get(pk=payment_id)
-    client = PayPalClient()
-    data = client.request("GET", order_path(payment))
-    unit = validate_order(payment, data)
-    if (
-        capture
-        and payment.status != PayPalPayment.Status.CANCELLED
-        and data.get("status") == "APPROVED"
-        and not unit.get("payments", {}).get("captures")
-    ):
-        if payment.purpose == "DEBT" and payment.amount_cents > max(0, -user.balance):
-            raise ValidationError(
-                "Der offene Betrag hat sich verringert. Bitte eine neue Zahlung starten."
-            )
-        client.request(
-            "POST", f"{order_path(payment)}/capture", {}, request_id=f"capture-{payment.pk}"
-        )
-        data = client.request("GET", order_path(payment))
-        unit = validate_order(payment, data)
-    captures = unit.get("payments", {}).get("captures", [])
-    if len(captures) > 1:
-        raise PayPalError("Unexpected multiple captures.")
-    if captures:
-        provider_capture = captures[0]
-        if parse_money(provider_capture.get("amount")) != payment.amount_cents:
-            raise PayPalError("Capture amount mismatch.")
-        status = provider_capture.get("status")
-        if status in {"COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED"}:
-            capture_id = provider_capture.get("id")
-            if not capture_id or (payment.capture_id and payment.capture_id != capture_id):
-                raise PayPalError("Capture ID mismatch.")
-            payment.capture_id = capture_id
-            entry, _ = LedgerEntry.objects.get_or_create(
-                reference=f"paypal:capture:{capture_id}",
-                defaults={
-                    "user": user,
-                    "amount_cents": payment.amount_cents,
-                    "kind": LedgerEntry.Kind.PAYPAL,
-                    "payment": payment,
-                    "method": "PAYPAL",
-                    "note": "PayPal Guthaben" if payment.purpose == "TOPUP" else "PayPal Ausgleich",
-                },
-            )
-            if entry.payment_id != payment.pk or entry.amount_cents != payment.amount_cents:
-                raise PayPalError("Capture has already been assigned to another payment.")
-            payment.status = PayPalPayment.Status.COMPLETED
-        elif not payment.capture_id:
-            payment.status = (
-                PayPalPayment.Status.FAILED
-                if status in {"DECLINED", "FAILED"}
-                else PayPalPayment.Status.PENDING
-            )
-    elif not payment.capture_id:
-        provider_status = data.get("status")
-        if provider_status == "VOIDED":
-            payment.status = PayPalPayment.Status.CANCELLED
-        elif provider_status == "APPROVED" and payment.status != PayPalPayment.Status.CANCELLED:
-            payment.status = PayPalPayment.Status.APPROVED
-        elif payment.status != PayPalPayment.Status.CANCELLED:
-            payment.status = PayPalPayment.Status.CREATED
-    for refund in unit.get("payments", {}).get("refunds", []):
-        if refund.get("status") != "COMPLETED":
+def _body(message):
+    parts = message.walk() if message.is_multipart() else [message]
+    values = []
+    for part in parts:
+        if part.get_content_type() not in {"text/plain", "text/html"}:
             continue
-        if not payment.capture_id or not refund.get("id"):
-            raise PayPalError("Refund without a verified capture.")
-        amount = parse_money(refund.get("amount"))
-        entry, _ = LedgerEntry.objects.get_or_create(
-            reference=f"paypal:refund:{refund['id']}",
-            defaults={
-                "user": user,
-                "amount_cents": -amount,
-                "kind": LedgerEntry.Kind.REFUND,
-                "payment": payment,
-                "method": "PAYPAL",
-                "note": "PayPal Erstattung",
-            },
-        )
-        if entry.payment_id != payment.pk or entry.amount_cents != -amount:
-            raise PayPalError("Refund does not match its original record.")
-    payment.refunded_cents = -(
-        payment.entries.filter(kind=LedgerEntry.Kind.REFUND).aggregate(total=Sum("amount_cents"))[
-            "total"
-        ]
-        or 0
+        try:
+            values.append(part.get_content())
+        except (LookupError, UnicodeError):
+            payload = part.get_payload(decode=True) or b""
+            values.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+    return "\n".join(values)
+
+
+def _plain_text(text):
+    text = re.sub(
+        r"<(?:style|script)\b[^>]*>.*?</(?:style|script)>",
+        " ",
+        text,
+        flags=re.I | re.S,
     )
-    if payment.refunded_cents > payment.amount_cents:
-        raise PayPalError("Refund exceeds captured amount.")
-    if payment.refunded_cents:
-        payment.status = (
-            PayPalPayment.Status.REFUNDED
-            if payment.refunded_cents == payment.amount_cents
-            else PayPalPayment.Status.PARTIALLY_REFUNDED
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def _amount(text):
+    matches = re.findall(r"(?:EUR\s*)?(\d{1,6}(?:[.,]\d{2}))\s*(?:EUR|€)", text, re.IGNORECASE)
+    if not matches:
+        matches = re.findall(r"€\s*(\d{1,6}(?:[.,]\d{2}))", text)
+    if not matches:
+        return None
+    try:
+        raw = matches[0]
+        value = Decimal(raw.replace(",", "."))
+        cents = value * 100
+        return int(cents) if cents == cents.to_integral_value() else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _reference(text):
+    match = re.search(
+        r"(?:transaction\s*id|transaktions(?:code|nummer)|transaktions-id)\s*[:#]?\s*([A-Z0-9-]{8,})",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def _recipient(text):
+    email_match = re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", text)
+    recipient_email = email_match.group(0) if email_match else ""
+    name_match = re.search(
+        r"(?:payment\s+to|zahlung\s+an|(?:\d[\d.,]*\s*(?:€\s*)?EUR)\s+an)\s+(.+?)(?=\s+(?:for|in the amount|sent|gesendet)|[.(])",
+        text,
+        re.IGNORECASE,
+    )
+    recipient_name = name_match.group(1).strip(" :,-") if name_match else ""
+    return recipient_name, recipient_email
+
+
+def parse_message(raw, message_id):
+    message = email.message_from_bytes(raw, policy=policy.default)
+    subject = _decode(message.get("Subject"))
+    text = _plain_text(f"{subject}\n{_body(message)}")
+    outgoing = bool(
+        re.search(r"you sent|sie haben eine zahlung gesendet|zahlung gesendet", text, re.IGNORECASE)
+    )
+    incoming = bool(
+        re.search(
+            r"you received|sie haben eine zahlung erhalten|zahlung erhalten", text, re.IGNORECASE
         )
-    payment.save()
-    return payment
+    )
+    if not (incoming or outgoing):
+        return None
+    recipient_name, recipient_email = _recipient(text) if outgoing else ("", "")
+    try:
+        received_at = parsedate_to_datetime(message.get("Date"))
+    except (TypeError, ValueError, IndexError, OverflowError):
+        received_at = timezone.now()
+    if received_at.tzinfo is None:
+        received_at = timezone.make_aware(received_at)
+    return {
+        "message_id": message.get("Message-ID") or str(message_id),
+        "amount_cents": _amount(text),
+        "reference": _reference(text),
+        "recipient_name": recipient_name,
+        "recipient_email": recipient_email,
+        "text": text.lower(),
+        "outgoing": outgoing,
+        "received_at": received_at,
+    }
+
+
+def _match_payment(data):
+    payments = PayPalPayment.objects.select_for_update().filter(
+        status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING]
+    )
+    candidates = [
+        payment
+        for payment in payments
+        if payment.amount_cents == data["amount_cents"]
+        and payment.user.paypal_email.lower() in data["text"]
+    ]
+    if len(candidates) != 1:
+        candidates = [
+            payment for payment in payments if payment.amount_cents == data["amount_cents"]
+        ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _incoming_folder(user):
+    return f"Einzahlungen/{user.pk}-{slugify(user.name) or 'user'}"
+
+
+def _target_folder(data):
+    payment = (
+        PayPalPayment.objects.select_related("user")
+        .filter(provider_message_id=data["message_id"])
+        .first()
+    )
+    if payment:
+        return _incoming_folder(payment.user)
+    if Payout.objects.filter(provider_message_id=data["message_id"]).exists():
+        return "Auszahlungen"
+    return None
+
+
+def _move_message(mailbox, message_id, target):
+    delimiter = "."
+    imap_target = delimiter.join(target.split("/"))
+    folders = imap_target.split(delimiter)
+    for index in range(1, len(folders) + 1):
+        folder = delimiter.join(folders[:index])
+        result = mailbox.create(folder)
+        status = result[0] if isinstance(result, tuple) else "OK"
+        logger.debug("PayPal-IMAP: Ordner %s anlegen: %s", folder, status)
+    try:
+        status, _ = mailbox.move(message_id, imap_target)
+    except (AttributeError, imaplib.IMAP4.error):
+        status = "NO"
+    if status == "OK":
+        logger.debug("PayPal-IMAP: Nachricht %s nach %s verschoben (MOVE)", message_id, imap_target)
+        return
+    status, _ = mailbox.copy(message_id, imap_target)
+    if status != "OK":
+        raise PayPalError(f"PayPal-E-Mail konnte nicht nach {target} verschoben werden.")
+    status, _ = mailbox.store(message_id, "+FLAGS", "\\Deleted")
+    if status != "OK":
+        raise PayPalError(f"PayPal-E-Mail konnte nicht nach {target} verschoben werden.")
+    logger.debug("PayPal-IMAP: Nachricht %s nach %s verschoben (COPY)", message_id, imap_target)
 
 
 @transaction.atomic
-def cancel_payment(payment_id):
-    initial = PayPalPayment.objects.get(pk=payment_id)
-    User.objects.select_for_update().get(pk=initial.user_id)
-    payment = PayPalPayment.objects.select_for_update().get(pk=payment_id)
-    if payment.order_id:
-        payment = sync_payment(payment.pk)
-    if payment.status not in {"CREATED", "APPROVED", "CANCELLED"} or payment.capture_id:
-        raise ValidationError(
-            "Diese Zahlung wurde bereits verarbeitet und kann nicht geschlossen werden."
-        )
-    payment.status = PayPalPayment.Status.CANCELLED
-    payment.save(update_fields=["status", "updated_at"])
-    return payment
-
-
-def verify_webhook(headers, event):
-    if not settings.PAYPAL_WEBHOOK_ID:
-        raise PayPalError("Webhook is not configured.")
-    names = {
-        "auth_algo": "PAYPAL-AUTH-ALGO",
-        "cert_url": "PAYPAL-CERT-URL",
-        "transmission_id": "PAYPAL-TRANSMISSION-ID",
-        "transmission_sig": "PAYPAL-TRANSMISSION-SIG",
-        "transmission_time": "PAYPAL-TRANSMISSION-TIME",
-    }
-    if any(not headers.get(header) for header in names.values()):
+def _apply_message(data, payment_id=None):
+    if not data or not data["amount_cents"]:
         return False
-    body = {field: headers[header] for field, header in names.items()}
-    body.update(webhook_id=settings.PAYPAL_WEBHOOK_ID, webhook_event=event)
-    result = PayPalClient().request("POST", "/v1/notifications/verify-webhook-signature", body)
-    return result.get("verification_status") == "SUCCESS"
-
-
-def process_webhook(event):
-    event_type = event.get("event_type", "")
-    if event_type not in {
-        "CHECKOUT.ORDER.APPROVED",
-        "CHECKOUT.ORDER.COMPLETED",
-        "PAYMENT.CAPTURE.COMPLETED",
-        "PAYMENT.CAPTURE.PENDING",
-        "PAYMENT.CAPTURE.DENIED",
-        "PAYMENT.CAPTURE.REFUNDED",
-    }:
-        return
-    resource = event.get("resource", {})
-    related = resource.get("supplementary_data", {}).get("related_ids", {})
-    order_id = (
-        resource.get("id") if event_type.startswith("CHECKOUT.ORDER.") else related.get("order_id")
+    if (
+        PayPalPayment.objects.filter(provider_message_id=data["message_id"]).exists()
+        or Payout.objects.filter(provider_message_id=data["message_id"]).exists()
+        or (
+            data["reference"]
+            and PayPalPayment.objects.filter(provider_reference=data["reference"]).exists()
+        )
+    ):
+        return False
+    if data["outgoing"]:
+        provider_reference = (
+            data["reference"] or hashlib.sha256(data["message_id"].encode()).hexdigest()
+        )
+        actor = User.objects.filter(is_admin=True, is_active=True).order_by("pk").first()
+        note_parts = []
+        if data["recipient_name"]:
+            note_parts.append(f"Empfänger: {data['recipient_name']}")
+        if data["reference"]:
+            note_parts.append(f"Transaktionscode: {data['reference']}")
+        Payout.objects.create(
+            amount_cents=data["amount_cents"],
+            method=Payout.Method.PAYPAL,
+            status=Payout.Status.COMPLETED,
+            recipient=data["recipient_email"],
+            note="; ".join(note_parts),
+            provider_batch_id=provider_reference,
+            provider_message_id=data["message_id"],
+            created_by=actor,
+            created_at=data["received_at"],
+        )
+        return True
+    payment = _match_payment(data)
+    if payment_id and (payment is None or str(payment.pk) != str(payment_id)):
+        return False
+    if payment is None:
+        return False
+    payment.status = PayPalPayment.Status.COMPLETED
+    payment.provider_reference = data["reference"] or data["message_id"]
+    payment.provider_message_id = data["message_id"]
+    LedgerEntry.objects.create(
+        user=payment.user,
+        amount_cents=payment.amount_cents,
+        kind=LedgerEntry.Kind.PAYPAL,
+        payment=payment,
+        method="PAYPAL",
+        note="PayPal Guthaben" if payment.purpose == "TOPUP" else "PayPal Ausgleich",
+        reference=f"paypal:mail:{payment.provider_reference}",
+        created_at=data["received_at"],
     )
-    payment = PayPalPayment.objects.filter(order_id=order_id).first() if order_id else None
-    if payment is None:
-        capture_id = related.get("capture_id") or resource.get("id")
-        if event_type == "PAYMENT.CAPTURE.REFUNDED":
-            capture_id = next(
-                (
-                    urlparse(link.get("href", "")).path.rstrip("/").split("/")[-1]
-                    for link in resource.get("links", [])
-                    if link.get("rel") == "up"
-                ),
-                capture_id,
-            )
-        payment = PayPalPayment.objects.filter(capture_id=capture_id).first()
-    if payment is None:
-        raise PayPalError("Payment not yet matched; retry notification.")
-    sync_payment(payment.pk, capture=event_type == "CHECKOUT.ORDER.APPROVED")
+    payment.save(
+        update_fields=["status", "provider_reference", "provider_message_id", "updated_at"]
+    )
+    return True
+
+
+def sync_mailbox(payment_id=None):
+    if not mailbox_enabled():
+        raise PayPalError("PayPal-IMAP ist nicht konfiguriert.")
+    mode = (
+        "SSL"
+        if settings.PAYPAL_IMAP_USE_SSL
+        else "STARTTLS"
+        if settings.PAYPAL_IMAP_USE_TLS
+        else "plain"
+    )
+    logger.debug(
+        "PayPal-IMAP: Verbindung zu %s:%s über %s, Ordner %s",
+        settings.PAYPAL_IMAP_HOST,
+        settings.PAYPAL_IMAP_PORT,
+        mode,
+        settings.PAYPAL_IMAP_FOLDER,
+    )
+    mailbox = None
+    try:
+        if settings.PAYPAL_IMAP_USE_SSL:
+            mailbox = imaplib.IMAP4_SSL(settings.PAYPAL_IMAP_HOST, settings.PAYPAL_IMAP_PORT)
+        else:
+            mailbox = imaplib.IMAP4(settings.PAYPAL_IMAP_HOST, settings.PAYPAL_IMAP_PORT)
+            if settings.PAYPAL_IMAP_USE_TLS:
+                mailbox.starttls()
+        mailbox.login(settings.PAYPAL_IMAP_USER, settings.PAYPAL_IMAP_PASSWORD)
+        logger.debug("PayPal-IMAP: Anmeldung erfolgreich")
+        mailbox.select(settings.PAYPAL_IMAP_FOLDER)
+        status, result = mailbox.search(None, "ALL")
+        if status != "OK":
+            raise PayPalError("PayPal-E-Mails konnten nicht gelesen werden.")
+        logger.debug("PayPal-IMAP: %s Nachrichten gefunden", len(result[0].split()))
+        changed = 0
+        for message_id in result[0].split():
+            status, fetched = mailbox.fetch(message_id, "(RFC822)")
+            if status != "OK":
+                logger.debug("PayPal-IMAP: Nachricht %s konnte nicht geladen werden", message_id)
+                continue
+            raw = next((part[1] for part in fetched if isinstance(part, tuple)), None)
+            data = parse_message(raw, message_id.decode()) if raw else None
+            if data:
+                logger.debug(
+                    "PayPal-IMAP: Nachricht %s erkannt: Richtung=%s Betrag=%s Referenz=%s",
+                    message_id,
+                    "Ausgang" if data["outgoing"] else "Eingang",
+                    data["amount_cents"],
+                    data["reference"] or "-",
+                )
+            if payment_id and data:
+                belongs_to_payment = PayPalPayment.objects.filter(
+                    pk=payment_id, provider_message_id=data["message_id"]
+                ).exists()
+                is_pending_payment = PayPalPayment.objects.filter(
+                    pk=payment_id,
+                    status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING],
+                    amount_cents=data["amount_cents"],
+                ).exists()
+                if not belongs_to_payment and not is_pending_payment:
+                    continue
+            changed += int(_apply_message(data, payment_id=payment_id))
+            if data:
+                target = _target_folder(data)
+                if target:
+                    _move_message(mailbox, message_id, target)
+        mailbox.expunge()
+        logger.debug("PayPal-IMAP: Scan abgeschlossen, %s Buchungen verarbeitet", changed)
+        return changed
+    except (imaplib.IMAP4.error, OSError) as error:
+        logger.exception("PayPal-IMAP: Verbindungs- oder Lesevorgang fehlgeschlagen")
+        raise PayPalError("PayPal-IMAP konnte nicht abgefragt werden.") from error
+    finally:
+        if mailbox is not None:
+            try:
+                mailbox.logout()
+            except (imaplib.IMAP4.error, OSError):
+                pass
+
+
+def sync_payment(payment_id):
+    sync_mailbox(payment_id)
+    return PayPalPayment.objects.get(pk=payment_id)

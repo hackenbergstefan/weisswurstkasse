@@ -122,15 +122,7 @@ class PayoutForm(forms.Form):
         decimal_places=2,
         widget=forms.NumberInput(attrs={"step": "0.01", "inputmode": "decimal"}),
     )
-    method = forms.ChoiceField(label="Methode", choices=[("CASH", "Bargeld"), ("PAYPAL", "PayPal")])
-    recipient = forms.EmailField(label="PayPal-E-Mail", required=False)
     note = forms.CharField(label="Notiz", required=False, max_length=500)
-
-    def clean(self):
-        data = super().clean()
-        if data.get("method") == "PAYPAL" and not data.get("recipient"):
-            self.add_error("recipient", "Für PayPal ist eine Empfänger-E-Mail erforderlich.")
-        return data
 
     @property
     def cents(self):

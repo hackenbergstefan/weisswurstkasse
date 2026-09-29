@@ -9,7 +9,6 @@ class PrivatePagesMiddleware:
             response["Content-Security-Policy"] = (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "img-src 'self'; font-src 'self'; object-src 'none'; "
-                "base-uri 'self'; frame-ancestors 'none'; "
-                "form-action 'self' https://www.paypal.com https://www.sandbox.paypal.com"
+                "base-uri 'self'; frame-ancestors 'none'"
             )
         return response

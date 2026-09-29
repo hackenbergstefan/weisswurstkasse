@@ -185,6 +185,8 @@ class PayPalPayment(models.Model):
     capture_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     refunded_cents = models.PositiveIntegerField(default=0)
     approval_url = models.URLField(blank=True)
+    provider_reference = models.CharField(max_length=180, unique=True, null=True, blank=True)
+    provider_message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -205,7 +207,10 @@ class Payout(models.Model):
     recipient = models.EmailField(blank=True)
     note = models.CharField(max_length=500, blank=True)
     provider_batch_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="payouts")
+    provider_message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name="payouts", null=True, blank=True
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
 
