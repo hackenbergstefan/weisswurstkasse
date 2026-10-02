@@ -19,6 +19,11 @@ from django.utils.text import slugify
 from .models import LedgerEntry, Payout, PayPalPayment, User
 
 logger = logging.getLogger(__name__)
+OPEN_PAYMENT_STATUSES = (
+    PayPalPayment.Status.CREATED,
+    PayPalPayment.Status.APPROVED,
+    PayPalPayment.Status.PENDING,
+)
 
 
 class PayPalError(Exception):
@@ -48,11 +53,7 @@ def _matching_cents():
     open_cents = set(
         PayPalPayment.objects.select_for_update()
         .filter(
-            status__in=[
-                PayPalPayment.Status.CREATED,
-                PayPalPayment.Status.APPROVED,
-                PayPalPayment.Status.PENDING,
-            ],
+            status__in=OPEN_PAYMENT_STATUSES,
             matching_cents__isnull=False,
         )
         .values_list("matching_cents", flat=True)
@@ -74,6 +75,8 @@ def create_payment(user, amount_cents, purpose, request_id):
         if payment and payment.user_id != user.pk:
             raise ValidationError("Ungueltige Zahlungsanfrage.")
         if not payment:
+            if PayPalPayment.objects.filter(user=user, status__in=OPEN_PAYMENT_STATUSES).exists():
+                raise ValidationError("Du hast bereits eine offene PayPal-Einzahlung.")
             if purpose == "DEBT":
                 amount_cents = max(0, -user.balance)
             if (

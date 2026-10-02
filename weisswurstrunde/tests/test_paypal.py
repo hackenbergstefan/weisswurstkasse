@@ -30,8 +30,11 @@ class PayPalMailTests(TestCase):
 
     @patch("weisswurstrunde.paypal.secrets.choice", side_effect=lambda cents: cents[0])
     def test_open_payments_reserve_distinct_matching_cents(self, _choice):
+        other_user = User.objects.create_user(
+            "other@example.org", "test-password", name="Other", paypal_email="other@example.org"
+        )
         PayPalPayment.objects.create(
-            user=self.user,
+            user=other_user,
             amount_cents=2003,
             matching_cents=3,
             purpose="TOPUP",
@@ -39,6 +42,24 @@ class PayPalMailTests(TestCase):
         )
         payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d9")
         self.assertNotEqual(payment.matching_cents, 3)
+
+    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
+    def test_user_can_have_only_one_open_paypal_payment(self, _choice):
+        request_id = "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d8"
+        payment = create_payment(self.user, 2000, "TOPUP", request_id)
+
+        with self.assertRaises(ValidationError):
+            create_payment(self.user, 3000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e1")
+
+        self.assertEqual(
+            str(create_payment(self.user, 2000, "TOPUP", request_id).pk), str(payment.pk)
+        )
+        payment.status = PayPalPayment.Status.COMPLETED
+        payment.save(update_fields=["status"])
+        next_payment = create_payment(
+            self.user, 3000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e1"
+        )
+        self.assertEqual(next_payment.status, PayPalPayment.Status.PENDING)
 
     def test_invalid_payment_amount_is_rejected(self):
         with self.assertRaises(ValidationError):
