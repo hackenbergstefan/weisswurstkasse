@@ -174,7 +174,7 @@ def order_context(order, actor):
 @require_GET
 def dashboard(request):
     orders = (
-        request.user.orders.filter(event__date__gte=timezone.localdate())
+        request.user.orders.filter(event__deadline__gt=timezone.now())
         .select_related("event")
         .prefetch_related("items__product")
         .order_by("event__date", "event__event_type")
@@ -253,7 +253,7 @@ def orders(request):
             messages.error(request, "Dieser Termin existiert nicht.")
     if event is None:
         upcoming = list(
-            events.filter(date__gte=timezone.localdate()).order_by("date", "event_type")[:count]
+            events.filter(deadline__gt=timezone.now()).order_by("date", "event_type")[:count]
         )
         quantities = list(
             Order.objects.filter(event__in=upcoming)
@@ -343,7 +343,7 @@ def orders(request):
 @login_required
 @require_GET
 def order_history(request):
-    past_events = Event.objects.filter(date__lt=timezone.localdate()).order_by(
+    past_events = Event.objects.filter(deadline__lte=timezone.now()).order_by(
         "-date", "-event_type"
     )
     page = Paginator(past_events, 50).get_page(request.GET.get("page"))

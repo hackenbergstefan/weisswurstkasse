@@ -289,10 +289,11 @@ class ViewTests(TestCase):
     def test_orders_overview_limits_and_sorts_upcoming_dates(self):
         self.client.force_login(self.user)
         today = timezone.localdate()
-        Event.objects.create(date=today - timedelta(days=1), deadline=timezone.now())
+        now = timezone.now()
+        Event.objects.create(date=today - timedelta(days=1), deadline=now - timedelta(minutes=1))
         Event.objects.bulk_create(
             [
-                Event(date=today + timedelta(weeks=offset), deadline=timezone.now())
+                Event(date=today + timedelta(weeks=offset), deadline=now + timedelta(weeks=offset))
                 for offset in range(1, 105)
             ]
         )
@@ -348,6 +349,7 @@ class ViewTests(TestCase):
     def test_orders_empty_overview_and_past_event_details(self):
         self.client.force_login(self.user)
         self.event.date = timezone.localdate() - timedelta(days=1)
+        self.event.deadline = timezone.now() - timedelta(minutes=1)
         self.event.save()
         response = self.client.get("/orders/")
         self.assertContains(response, "Keine kommenden Termine.")
@@ -378,6 +380,23 @@ class ViewTests(TestCase):
         self.assertContains(response, self.product.name)
         self.assertContains(response, f"/orders/?event={past_event.pk}")
         self.assertNotContains(response, "Noch keine vergangenen Bestellungen.")
+
+    def test_expired_deadline_moves_future_dated_event_to_history(self):
+        event = Event.objects.create(
+            date=timezone.localdate() + timedelta(days=2),
+            deadline=timezone.now() - timedelta(minutes=1),
+        )
+        order = Order.objects.create(user=self.user, event=event)
+        self.client.force_login(self.user)
+
+        history = self.client.get("/order-history/")
+        orders = self.client.get("/orders/")
+        dashboard = self.client.get("/")
+
+        self.assertEqual(history.status_code, 200)
+        self.assertIn(event, history.context["events"])
+        self.assertNotIn(event, [row["event"] for row in orders.context["summaries"]])
+        self.assertNotIn(order.pk, [row["order"].pk for row in dashboard.context["upcoming"]])
 
     def test_password_change_preserves_session(self):
         self.client.force_login(self.user)
@@ -589,7 +608,7 @@ class ViewTests(TestCase):
         response = self.client.get(path)
         self.assertContains(response, f'name="{field}"')
         self.assertContains(response, "Admin-Korrektur")
-        self.assertContains(
+        self.assertNotContains(
             self.client.get("/"), f'name="order-{own_order.pk}-product_{self.product.pk}"'
         )
         self.assertContains(
