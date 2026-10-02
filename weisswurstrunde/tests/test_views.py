@@ -126,6 +126,23 @@ class ViewTests(TestCase):
         self.assertContains(response, f'name="order-{self.order.pk}-version"')
         self.assertEqual(response.context["upcoming"][0]["display_total"], 320)
 
+    def test_future_order_preview_uses_current_product_prices(self):
+        self.client.force_login(self.user)
+        future_event = Event.objects.create(
+            date=self.event.date + timedelta(days=7),
+            deadline=timezone.now() + timedelta(days=6),
+        )
+        future_order = Order.objects.create(user=self.user, event=future_event)
+        save_order(future_order.pk, {self.product.pk: 2}, self.user)
+        self.product.price_cents = 200
+        self.product.save(update_fields=["price_cents"])
+
+        response = self.client.get("/")
+
+        self.assertContains(response, 'class="future-total">4,00')
+        self.assertNotContains(response, 'class="future-total">3,20')
+        self.assertEqual(future_order.total, 320)
+
     def test_retired_products_are_not_orderable_but_existing_charges_remain(self):
         self.client.force_login(self.user)
         mustard = Product.objects.create(name="S\u00fc\u00dfer Senf", price_cents=30)
