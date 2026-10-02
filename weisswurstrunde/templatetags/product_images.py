@@ -9,6 +9,10 @@ def product_image_filename(name):
     normalized_name = str(name).lower()
     if "leber" in normalized_name:
         return "leberkas-neu.png"
+    if "debrecziner" in normalized_name:
+        return "debrecziner.png"
+    if "wiener" in normalized_name:
+        return "wiener.png"
     if "wurst" in normalized_name:
         return "weisswurst-neu.png"
     if "brez" in normalized_name:
