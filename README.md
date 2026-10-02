@@ -189,7 +189,9 @@ never rewrites historic entries.
   `PAYPAL_IMAP_PASSWORD` and optionally `PAYPAL_IMAP_FOLDER`.
 3. A participant starts a payment in **Kasse**, follows the generated PayPal.me
   link and then uses **PayPal-Mail prüfen**. The worker also runs this check every
-  15 minutes. The stored PayPal email and amount must identify one open payment.
+  15 minutes. Each open request receives a unique random surcharge from 0 to 30
+  cents; the shown total must be paid exactly and identifies the incoming payment.
+  An open request can be removed from the payment list before it is matched.
 4. Admins use the PayPal link in the separate **PayPal-Auszahlung** section and
   send the payment manually. Every matching outgoing PayPal notification creates
   a completed payout automatically, including recipient name and transaction code

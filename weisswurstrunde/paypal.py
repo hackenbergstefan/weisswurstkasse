@@ -4,6 +4,7 @@ import html
 import imaplib
 import logging
 import re
+import secrets
 from decimal import Decimal, InvalidOperation
 from email import policy
 from email.header import decode_header, make_header
@@ -43,6 +44,25 @@ def _paypal_me_url(amount_cents):
     return f"{settings.PAYPAL_ME_LINK.rstrip('/')}/{amount}"
 
 
+def _matching_cents():
+    open_cents = set(
+        PayPalPayment.objects.select_for_update()
+        .filter(
+            status__in=[
+                PayPalPayment.Status.CREATED,
+                PayPalPayment.Status.APPROVED,
+                PayPalPayment.Status.PENDING,
+            ],
+            matching_cents__isnull=False,
+        )
+        .values_list("matching_cents", flat=True)
+    )
+    available_cents = list(set(range(31)) - open_cents)
+    if not available_cents:
+        raise ValidationError("Es sind bereits zu viele PayPal-Zahlungen offen.")
+    return secrets.choice(available_cents)
+
+
 def create_payment(user, amount_cents, purpose, request_id):
     if not enabled():
         raise PayPalError("PayPal.me ist noch nicht konfiguriert.")
@@ -62,16 +82,19 @@ def create_payment(user, amount_cents, purpose, request_id):
                 or not 0 < amount_cents <= 1000000
             ):
                 raise ValidationError("Der Betrag muss zwischen 0,01 und 10.000,00 EUR liegen.")
+            matching_cents = _matching_cents()
             payment = PayPalPayment.objects.create(
                 id=request_id,
                 user=user,
-                amount_cents=amount_cents,
+                amount_cents=amount_cents + matching_cents,
+                matching_cents=matching_cents,
                 purpose=purpose,
                 status=PayPalPayment.Status.PENDING,
-                approval_url=_paypal_me_url(amount_cents),
+                approval_url=_paypal_me_url(amount_cents + matching_cents),
             )
         elif payment.purpose != purpose or (
-            purpose == "TOPUP" and payment.amount_cents != amount_cents
+            purpose == "TOPUP"
+            and payment.amount_cents - (payment.matching_cents or 0) != amount_cents
         ):
             raise ValidationError("Diese Zahlungsanfrage wurde bereits anders verwendet.")
     return payment
@@ -179,16 +202,7 @@ def _match_payment(data):
     payments = PayPalPayment.objects.select_for_update().filter(
         status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING]
     )
-    candidates = [
-        payment
-        for payment in payments
-        if payment.amount_cents == data["amount_cents"]
-        and payment.user.paypal_email.lower() in data["text"]
-    ]
-    if len(candidates) != 1:
-        candidates = [
-            payment for payment in payments if payment.amount_cents == data["amount_cents"]
-        ]
+    candidates = [payment for payment in payments if payment.amount_cents == data["amount_cents"]]
     return candidates[0] if len(candidates) == 1 else None
 
 

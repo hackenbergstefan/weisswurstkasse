@@ -29,8 +29,10 @@
                 <div class="amount-presets" role="group" aria-label="Aufladebetrag"><button type="button"
                         data-amount="10">10 &euro;</button><button type="button" data-amount="20" aria-pressed="true">20
                         &euro;</button><button type="button" data-amount="50">50 &euro;</button></div>
-                {% include 'weisswurstrunde/fields.html' with form=paypal_form %}<button type="submit"
-                    class="button paypal-button"><i data-lucide="arrow-up-right" aria-hidden="true"></i>PayPal.me öffnen
+                {% include 'weisswurstrunde/fields.html' with form=paypal_form %}<p class="muted">Zur eindeutigen
+                    Zuordnung wird ein zufaelliger Aufschlag von 0 bis 30 Cent hinzugefuegt. Bitte zahle den
+                    angezeigten Gesamtbetrag genau.</p><button type="submit" class="button paypal-button"><i
+                        data-lucide="arrow-up-right" aria-hidden="true"></i>PayPal.me öffnen
                 </button>
             </fieldset>
         </form>
@@ -113,6 +115,9 @@
                             action="{% url 'paypal_sync' payment.pk %}">
                             {% csrf_token %}<button type="submit" class="button secondary small"><i
                                     data-lucide="refresh-cw" aria-hidden="true"></i>PayPal-Mail prüfen</button></form>
+                        <form method="post" action="{% url 'paypal_delete' payment.pk %}">{% csrf_token %}<button
+                                type="submit" class="button secondary small"><i data-lucide="trash-2"
+                                    aria-hidden="true"></i>Entfernen</button></form>
                         {% endif %}
                     </td>
                 </tr>{% empty %}<tr>

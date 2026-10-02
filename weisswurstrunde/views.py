@@ -588,6 +588,21 @@ def paypal_sync(request, payment_id):
 
 
 @login_required
+@require_POST
+@transaction.atomic
+def paypal_delete(request, payment_id):
+    payment = get_object_or_404(
+        PayPalPayment.objects.select_for_update(),
+        pk=payment_id,
+        user=request.user,
+        status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING],
+    )
+    payment.delete()
+    messages.success(request, "Ausstehende PayPal-Zahlung entfernt.")
+    return redirect("payments")
+
+
+@login_required
 @require_GET
 def history(request, user_id=None):
     user = get_object_or_404(User, pk=user_id) if user_id else request.user

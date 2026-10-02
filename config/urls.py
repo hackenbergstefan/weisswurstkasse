@@ -22,4 +22,5 @@ urlpatterns = [
     path("history/<int:user_id>/", views.history, name="user_history"),
     path("correction/<int:entry_id>/", views.correction, name="correction"),
     path("paypal/<uuid:payment_id>/sync/", views.paypal_sync, name="paypal_sync"),
+    path("paypal/<uuid:payment_id>/delete/", views.paypal_delete, name="paypal_delete"),
 ]

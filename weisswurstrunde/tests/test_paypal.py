@@ -21,16 +21,31 @@ class PayPalMailTests(TestCase):
             "test@example.org", "test-password", name="Test", paypal_email="buyer@example.org"
         )
 
-    def test_create_payment_uses_paypal_me_and_waits_for_mail(self):
+    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
+    def test_create_payment_uses_paypal_me_and_waits_for_mail(self, _choice):
         payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d5")
         self.assertEqual(payment.status, PayPalPayment.Status.PENDING)
-        self.assertEqual(payment.approval_url, "https://paypal.me/stammtisch/20")
+        self.assertEqual(payment.matching_cents, 17)
+        self.assertEqual(payment.approval_url, "https://paypal.me/stammtisch/20,17")
+
+    @patch("weisswurstrunde.paypal.secrets.choice", side_effect=lambda cents: cents[0])
+    def test_open_payments_reserve_distinct_matching_cents(self, _choice):
+        PayPalPayment.objects.create(
+            user=self.user,
+            amount_cents=2003,
+            matching_cents=3,
+            purpose="TOPUP",
+            status=PayPalPayment.Status.PENDING,
+        )
+        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d9")
+        self.assertNotEqual(payment.matching_cents, 3)
 
     def test_invalid_payment_amount_is_rejected(self):
         with self.assertRaises(ValidationError):
             create_payment(self.user, 0, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d6")
 
-    def test_incoming_mail_books_once(self):
+    @patch("weisswurstrunde.paypal.secrets.choice", return_value=0)
+    def test_incoming_mail_books_once(self, _choice):
         raw = (
             b"From: service@paypal.com\n"
             b"Subject: Sie haben eine Zahlung erhalten\n"
@@ -47,6 +62,20 @@ class PayPalMailTests(TestCase):
         self.assertEqual(payment.status, PayPalPayment.Status.COMPLETED)
         self.assertEqual(self.user.balance, 2000)
         self.assertEqual(LedgerEntry.objects.count(), 1)
+
+    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
+    def test_incoming_mail_matches_payment_by_adjusted_amount(self, _choice):
+        raw = (
+            b"Subject: You received a payment\n"
+            b"Message-ID: <mail-adjusted@example.org>\n\n"
+            b"You received 20.17 EUR from unknown@example.org.\n"
+        )
+        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e0")
+
+        self.assertTrue(_apply_message(parse_message(raw, "5")))
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, PayPalPayment.Status.COMPLETED)
+        self.assertEqual(self.user.balance, 2017)
 
     def test_outgoing_mail_completes_payout(self):
         payout = Payout.objects.create(
@@ -100,7 +129,8 @@ class PayPalMailTests(TestCase):
         self.assertEqual(data["reference"], "6DE43837HX011215V")
 
     @patch("weisswurstrunde.paypal.imaplib.IMAP4_SSL")
-    def test_mailbox_reads_messages(self, imap_class):
+    @patch("weisswurstrunde.paypal.secrets.choice", return_value=0)
+    def test_mailbox_reads_messages(self, _choice, imap_class):
         raw = (
             b"From: service@paypal.com\nSubject: You received a payment\n"
             b"Message-ID: <mail-3@example.org>\n\n"

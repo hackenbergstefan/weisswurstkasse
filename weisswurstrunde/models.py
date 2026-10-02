@@ -177,6 +177,9 @@ class PayPalPayment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="paypal_payments")
     amount_cents = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    matching_cents = models.PositiveSmallIntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(30)]
+    )
     purpose = models.CharField(
         max_length=10, choices=[("TOPUP", "Guthaben"), ("DEBT", "Ausgleich")]
     )
@@ -189,6 +192,15 @@ class PayPalPayment(models.Model):
     provider_message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["matching_cents"],
+                condition=Q(status__in=["CREATED", "APPROVED", "PENDING"]),
+                name="unique_open_paypal_matching_cents",
+            )
+        ]
 
 
 class Payout(models.Model):

@@ -367,6 +367,31 @@ class ViewTests(TestCase):
         self.assertEqual(self.client.post(path).status_code, 404)
         self.assertEqual(self.client.get(path).status_code, 405)
 
+    def test_payments_explains_paypal_matching_surcharge(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get("/payments/", secure=True)
+
+        self.assertContains(response, "zufaelliger Aufschlag von 0 bis 30 Cent")
+
+    def test_user_can_remove_only_own_pending_paypal_payment(self):
+        payment = PayPalPayment.objects.create(
+            user=self.user,
+            amount_cents=1017,
+            matching_cents=17,
+            purpose="TOPUP",
+            status=PayPalPayment.Status.PENDING,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get("/payments/", secure=True)
+        self.assertContains(response, reverse("paypal_delete", args=[payment.pk]))
+        response = self.client.post(reverse("paypal_delete", args=[payment.pk]), secure=True)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/payments/")
+        self.assertFalse(PayPalPayment.objects.filter(pk=payment.pk).exists())
+
     def test_login_logout_and_invalid_login(self):
         self.assertEqual(self.client.get("/login/").status_code, 200)
         response = self.client.post("/login/", {"email": self.user.email, "password": "wrong"})
