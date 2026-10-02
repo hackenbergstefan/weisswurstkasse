@@ -9,6 +9,7 @@ dependencies = [
     "gunicorn>=23,<26",
     "httpx>=0.28,<0.29",
     "whitenoise>=6.9,<7",
+    "qrcode>=8.2,<9",
 ]
 
 [dependency-groups]

@@ -78,6 +78,23 @@ class ViewTests(TestCase):
                 self.assertNotContains(response, "theme-select")
                 self.assertNotContains(response, "data-theme")
                 self.assertNotIn("unsafe-inline", response["Content-Security-Policy"])
+        response = self.client.get("/register/?invitation=invite")
+        self.assertContains(response, 'name="invitation" value="invite"')
+
+    def test_admin_can_get_registration_qr(self):
+        self.assertEqual(self.client.get(reverse("registration_qr")).status_code, 302)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("registration_qr")).status_code, 403)
+
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        response = self.client.get(reverse("registration_qr"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/svg+xml")
+        self.assertIn(b"<svg", response.content)
+        self.assertEqual(response["Cache-Control"], "private, no-store")
+        self.assertContains(self.client.get("/products/"), "Einladungs-QR")
 
     def test_dashboard_shows_event_photo_and_distinct_upcoming_icons(self):
         self.client.force_login(self.user)

@@ -1,8 +1,12 @@
 import hashlib
 import uuid
 from datetime import timedelta
+from io import BytesIO
+from urllib.parse import urlencode
 
+import qrcode
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -17,6 +21,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from qrcode.image.svg import SvgPathImage
 
 from . import paypal, services
 from .forms import (
@@ -82,7 +87,12 @@ def login_view(request):
 def register(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
-    form = RegisterForm(request.POST or None)
+    form = RegisterForm(
+        request.POST or None,
+        initial={"invitation": request.GET.get("invitation", "")}
+        if request.method == "GET"
+        else None,
+    )
     if request.method == "POST":
         if rate_limited(request, "register"):
             return render(
@@ -103,6 +113,31 @@ def register(request):
             except IntegrityError:
                 form.add_error("email", "Diese E-Mail wird bereits verwendet.")
     return render(request, "weisswurstrunde/auth.html", {"form": form, "registering": True})
+
+
+@login_required
+@require_GET
+def registration_qr(request):
+    if not request.user.is_active or not request.user.is_admin:
+        raise PermissionDenied
+    if not settings.INVITATION_CODE:
+        return HttpResponse("Einladungscode ist nicht konfiguriert.", status=503)
+
+    registration_url = (
+        f"{settings.PUBLIC_BASE_URL}{reverse('register')}?"
+        f"{urlencode({'invitation': settings.INVITATION_CODE})}"
+    )
+    qr_code = qrcode.QRCode(box_size=10, border=4)
+    qr_code.add_data(registration_url)
+    qr_code.make(fit=True)
+    image = qr_code.make_image(image_factory=SvgPathImage)
+    output = BytesIO()
+    image.save(output)
+
+    response = HttpResponse(output.getvalue(), content_type="image/svg+xml")
+    response["Content-Disposition"] = 'inline; filename="einladung.svg"'
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @require_POST

@@ -35,7 +35,9 @@ class RegisterForm(forms.ModelForm):
         label="Passwort wiederholen",
         widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
     )
-    invitation = forms.CharField(label="Einladungscode", widget=forms.PasswordInput())
+    invitation = forms.CharField(
+        label="Einladungscode", widget=forms.PasswordInput(render_value=True)
+    )
 
     class Meta:
         model = User
