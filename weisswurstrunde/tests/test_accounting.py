@@ -141,6 +141,19 @@ class AccountingTests(TestCase):
         )
 
         mail.outbox.clear()
+        admin = User.objects.get(email="admin@example.org")
+        self.order.refresh_from_db()
+        with self.captureOnCommitCallbacks(execute=True):
+            save_order(self.order.pk, {self.product.pk: 1}, admin, self.order.version)
+        self.assertEqual(len(mail.outbox), 1)
+        changed_message = mail.outbox[0]
+        self.assertEqual(changed_message.to, [admin.email])
+        self.assertIn("Vorher: 3,20 €", changed_message.body)
+        self.assertIn("Neu: 1,60 €", changed_message.body)
+        self.assertIn("Delta:\n- 2 x Weisswurst -> 1 x Weisswurst (-1)", changed_message.body)
+        self.assertIn("Aenderung an abgeschlossener Bestellung", changed_message.alternatives[0][0])
+
+        mail.outbox.clear()
         with self.captureOnCommitCallbacks(execute=True):
             generate_events()
         self.assertEqual(mail.outbox, [])

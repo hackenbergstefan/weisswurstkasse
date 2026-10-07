@@ -42,6 +42,7 @@ def save_order(order_id, quantities, actor, expected_version=None):
     initial = Order.objects.get(pk=order_id)
     User.objects.select_for_update().get(pk=initial.user_id)
     order = Order.objects.select_for_update().select_related("event").get(pk=order_id)
+    closed_order = not order.event.editable
     if not order.event.can_edit(actor):
         raise ValidationError("Der Bestellschluss ist vorbei. Die Bestellung bleibt unveraendert.")
     if expected_version is not None and order.version != expected_version:
@@ -82,6 +83,30 @@ def save_order(order_id, quantities, actor, expected_version=None):
     order.version += 1
     order.save(update_fields=["version", "updated_at"])
     delta = old_total - order.total
+    new_snapshot = {
+        str(item.product_id): {
+            "quantity": item.quantity,
+            "unit_price_cents": item.unit_price_cents,
+        }
+        for item in order.items.all()
+    }
+    product_names = dict(
+        Product.objects.filter(
+            pk__in={int(product_id) for product_id in old_snapshot | new_snapshot}
+        ).values_list("pk", "name")
+    )
+    order_delta = [
+        {
+            "name": product_names[int(product_id)],
+            "old_quantity": old_snapshot.get(product_id, {}).get("quantity", 0),
+            "new_quantity": new_snapshot.get(product_id, {}).get("quantity", 0),
+            "quantity_delta": new_snapshot.get(product_id, {}).get("quantity", 0)
+            - old_snapshot.get(product_id, {}).get("quantity", 0),
+        }
+        for product_id in sorted(old_snapshot | new_snapshot, key=int)
+        if old_snapshot.get(product_id, {}).get("quantity", 0)
+        != new_snapshot.get(product_id, {}).get("quantity", 0)
+    ]
     if delta:
         LedgerEntry.objects.create(
             user=order.user,
@@ -100,15 +125,15 @@ def save_order(order_id, quantities, actor, expected_version=None):
         event_id=order.event_id,
         version=order.version,
         old_items=old_snapshot,
-        new_items={
-            str(item.product_id): {
-                "quantity": item.quantity,
-                "unit_price_cents": item.unit_price_cents,
-            }
-            for item in order.items.all()
-        },
+        new_items={product_id: item for product_id, item in new_snapshot.items()},
         total_cents=order.total,
     )
+    if closed_order and old_snapshot != new_snapshot:
+        transaction.on_commit(
+            lambda order_id=order.pk, old_total=old_total, order_delta=order_delta: (
+                send_order_changed_email(order_id, old_total, order_delta)
+            )
+        )
     return order
 
 
@@ -334,6 +359,55 @@ def send_order_close_emails(event_id):
             render_to_string("weisswurstrunde/email/orders_closed.html", context), "text/html"
         )
         message.send()
+
+
+def send_order_changed_email(order_id, old_total, order_delta):
+    order = (
+        Order.objects.select_related("event", "user")
+        .prefetch_related("items__product")
+        .get(pk=order_id)
+    )
+    admin_emails = list(
+        User.objects.filter(is_active=True, is_admin=True).values_list("email", flat=True)
+    )
+    if not admin_emails:
+        return
+    event = order.event
+    orders = list(
+        Order.objects.filter(event=event)
+        .select_related("user")
+        .prefetch_related("items__product")
+        .order_by("user__name")
+    )
+    product_totals = {}
+    for current_order in orders:
+        for item in current_order.items.all():
+            total = product_totals.setdefault(
+                item.product_id, {"name": item.product.name, "quantity": 0}
+            )
+            total["quantity"] += item.quantity
+    context = {
+        "event": event,
+        "orders": orders,
+        "product_totals": product_totals.values(),
+        "logo_url": f"{settings.PUBLIC_BASE_URL}{static('weisswurst-logo.png')}",
+        "change": {
+            "order": order,
+            "old_total": old_total,
+            "new_total": order.total,
+            "delta": order_delta,
+        },
+    }
+    message = EmailMultiAlternatives(
+        subject=f"Geaenderte Gesamtbestellung: {event.get_event_type_display()} am {event.date:%d.%m.%Y}",
+        body=render_to_string("weisswurstrunde/email/orders_closed.txt", context),
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=admin_emails,
+    )
+    message.attach_alternative(
+        render_to_string("weisswurstrunde/email/orders_closed.html", context), "text/html"
+    )
+    message.send()
 
 
 @transaction.atomic

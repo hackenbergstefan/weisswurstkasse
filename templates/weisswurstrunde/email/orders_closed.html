@@ -98,6 +98,29 @@
                             </table>
                         </td>
                     </tr>{% endif %}
+                    {% if change %}<tr>
+                        <td class="email-padding" style="padding: 0 40px 24px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                                style="background-color: #fff1c2; border: 1px solid #ffd15b; color: #103b53;">
+                                <tr>
+                                    <td style="padding: 16px 18px;">
+                                        <p
+                                            style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">
+                                            Aenderung an abgeschlossener Bestellung</p>
+                                        <p style="margin: 0; font-size: 15px; line-height: 1.5;">
+                                            <strong>{{ change.order.user.name }}</strong><br>
+                                            Vorher: {{ change.old_total|euros }} | Neu: {{ change.new_total|euros }}<br>
+                                            Delta:<br>
+                                            {% for item in change.delta %}{{ item.old_quantity }}x {{ item.name }}
+                                            &rarr;
+                                            {{ item.new_quantity }}x {{ item.name }}
+                                            ({{ item.quantity_delta }}){% if not forloop.last %}<br>{% endif %}{% endfor %}
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>{% endif %}
                     <tr>
                         <td class="email-padding" style="padding: 0 40px 36px;">
                             <table role="presentation" class="order-table" width="100%" cellspacing="0" cellpadding="0"

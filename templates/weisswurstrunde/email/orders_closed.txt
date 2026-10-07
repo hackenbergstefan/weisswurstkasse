@@ -5,6 +5,13 @@ Gesamtmenge:
 {% empty %}- Keine Produkte bestellt
 {% endfor %}
 
+{% if change %}Aenderung an einer abgeschlossenen Bestellung:
+{{ change.order.user.name }}: Vorher: {{ change.old_total|euros }}, Neu: {{ change.new_total|euros }}
+Delta:
+{% for item in change.delta %}- {{ item.old_quantity }} x {{ item.name }} -> {{ item.new_quantity }} x {{ item.name }} ({{ item.quantity_delta }})
+{% endfor %}
+{% endif %}
+
 {% for order in orders %}{{ order.user.name }}
 {% for item in order.items.all %}- {{ item.quantity }} x {{ item.product.name }} zu {{ item.unit_price_cents|euros }}
 {% empty %}- Keine Bestellung
