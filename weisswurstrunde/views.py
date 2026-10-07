@@ -595,6 +595,7 @@ def finance_overview(request):
             "income_total": entry_totals["income"] or 0,
             "expense_total": abs(entry_totals["expenses"] or 0),
             "payout_total": payout_total,
+            "cashbox_total": cashbox_summary()["total"],
             "pending_paypal_total": pending_payments.aggregate(total=Sum("amount_cents"))["total"]
             or 0,
         },
