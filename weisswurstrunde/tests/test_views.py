@@ -708,6 +708,85 @@ class ViewTests(TestCase):
         self.assertEqual(payout.amount_cents, 500)
         self.assertContains(self.client.get("/payments/"), "Auszahlungen")
 
+    def test_finance_overview_is_admin_only_and_lists_financial_records(self):
+        path = reverse("finance_overview")
+        self.assertEqual(self.client.get(path, secure=True).status_code, 302)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(path, secure=True).status_code, 403)
+
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        LedgerEntry.objects.create(
+            user=self.user,
+            amount_cents=1200,
+            kind=LedgerEntry.Kind.MANUAL,
+            method="CASH",
+            reference="finance-overview-income",
+            note="Einnahme Test",
+            recorded_by=self.user,
+        )
+        self.event.date = timezone.localdate() - timedelta(days=1)
+        self.event.save(update_fields=["date"])
+        LedgerEntry.objects.create(
+            user=self.user,
+            amount_cents=-400,
+            kind=LedgerEntry.Kind.ORDER,
+            order=self.order,
+            reference="finance-overview-expense",
+            note="Bestellung Test",
+            recorded_by=self.user,
+        )
+        future_event = Event.objects.create(
+            date=timezone.localdate() + timedelta(days=10),
+            deadline=timezone.now() + timedelta(days=9),
+        )
+        future_order = Order.objects.create(user=self.other, event=future_event)
+        LedgerEntry.objects.create(
+            user=self.other,
+            amount_cents=-900,
+            kind=LedgerEntry.Kind.ORDER,
+            order=future_order,
+            reference="finance-overview-future-order",
+            note="Künftige Bestellung",
+            recorded_by=self.user,
+        )
+        Payout.objects.create(
+            amount_cents=700,
+            method=Payout.Method.CASH,
+            status=Payout.Status.COMPLETED,
+            note="Bargeldabhebung",
+            created_by=self.user,
+        )
+        pending_payment = PayPalPayment.objects.create(
+            user=self.other,
+            amount_cents=1012,
+            matching_cents=12,
+            purpose="TOPUP",
+            status=PayPalPayment.Status.PENDING,
+        )
+        PayPalPayment.objects.create(
+            user=self.other,
+            amount_cents=1013,
+            matching_cents=13,
+            purpose="TOPUP",
+            status=PayPalPayment.Status.COMPLETED,
+        )
+
+        response = self.client.get(path, secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["income_total"], 1200)
+        self.assertEqual(response.context["expense_total"], 400)
+        self.assertEqual(response.context["payout_total"], 700)
+        self.assertEqual(response.context["pending_paypal_total"], 1012)
+        self.assertEqual(list(response.context["pending_payments"]), [pending_payment])
+        self.assertContains(response, "Finanzübersicht")
+        self.assertContains(response, "Einnahme Test")
+        self.assertContains(response, "Bestellung Test")
+        self.assertNotContains(response, "Künftige Bestellung")
+        self.assertContains(response, "Bargeldabhebung")
+        self.assertContains(response, self.other.name)
+
     def test_admin_can_start_paypal_payout(self):
         self.user.is_admin = True
         self.user.save()

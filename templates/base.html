@@ -45,8 +45,8 @@
   </main>
   <footer class="site-footer"><strong>Weißwurst. Leberkas. Beste Gesellschaft.</strong>{% if user.is_authenticated %}
     <div>
-      {% if user.is_admin %}<a href="{% url 'products' %}">Sortiment</a>{% endif %}<a
-        href="{% url 'history' %}">Kontoverlauf</a>
+      {% if user.is_admin %}<a href="{% url 'products' %}">Sortiment</a><a
+        href="{% url 'finance_overview' %}">Finanzen</a>{% endif %}<a href="{% url 'history' %}">Kontoverlauf</a>
       <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="text-button"
           type="submit">Abmelden</button></form>
     </div>{% endif %}

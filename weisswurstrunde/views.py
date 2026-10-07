@@ -533,6 +533,49 @@ def cashbox_summary():
 
 
 @login_required
+@require_GET
+def finance_overview(request):
+    if not request.user.is_active or not request.user.is_admin:
+        raise PermissionDenied
+
+    entries = (
+        LedgerEntry.objects.filter(LedgerEntry.balance_filter())
+        .select_related("user", "recorded_by", "order__event")
+        .order_by("-created_at", "-pk")
+    )
+    entry_totals = entries.aggregate(
+        income=Sum("amount_cents", filter=Q(amount_cents__gt=0)),
+        expenses=Sum("amount_cents", filter=Q(amount_cents__lt=0)),
+    )
+    payouts = Payout.objects.select_related("created_by").order_by("-created_at", "-pk")
+    payout_total = (
+        payouts.filter(status=Payout.Status.COMPLETED).aggregate(total=Sum("amount_cents"))["total"]
+        or 0
+    )
+    pending_payments = (
+        PayPalPayment.objects.filter(status__in=paypal.OPEN_PAYMENT_STATUSES)
+        .select_related("user")
+        .order_by("-created_at", "-pk")
+    )
+    return render(
+        request,
+        "weisswurstrunde/finance_overview.html",
+        {
+            "entries": Paginator(entries, 50).get_page(request.GET.get("entries_page")),
+            "payouts": Paginator(payouts, 50).get_page(request.GET.get("payouts_page")),
+            "pending_payments": Paginator(pending_payments, 50).get_page(
+                request.GET.get("paypal_page")
+            ),
+            "income_total": entry_totals["income"] or 0,
+            "expense_total": abs(entry_totals["expenses"] or 0),
+            "payout_total": payout_total,
+            "pending_paypal_total": pending_payments.aggregate(total=Sum("amount_cents"))["total"]
+            or 0,
+        },
+    )
+
+
+@login_required
 @require_http_methods(["GET", "POST"])
 def payments(request):
     if request.user.is_admin:

@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% load money %}
+{% block title %}Finanzübersicht{% endblock %}
+{% block content %}
+<div class="page-heading">
+    <div>
+        <p class="eyebrow">Verwaltung</p>
+        <h1>Finanzübersicht</h1>
+    </div>
+    <a class="quiet-link" href="{% url 'payments' %}"><i data-lucide="wallet" aria-hidden="true"></i>Kasse</a>
+</div>
+<section class="account-summary" aria-label="Summen">
+    <div><span class="small-label">Einnahmen</span><strong>{{ income_total|euros }}</strong></div>
+    <div><span class="small-label">Belastungen</span><strong>{{ expense_total|euros }}</strong></div>
+    <div><span class="small-label">Auszahlungen</span><strong>{{ payout_total|euros }}</strong></div>
+    <div><span class="small-label">PayPal offen</span><strong>{{ pending_paypal_total|euros }}</strong></div>
+</section>
+
+<section class="section-space">
+    <h2>Einnahmen und Belastungen</h2>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Teilnehmer</th>
+                    <th>Buchung</th>
+                    <th class="numeric">Betrag</th>
+                </tr>
+            </thead>
+            <tbody>{% for entry in entries %}<tr>
+                    <td class="nowrap">{{ entry.created_at|date:'d.m.Y H:i' }}</td>
+                    <td>{{ entry.user.name }}</td>
+                    <td><strong>{{ entry.get_kind_display }}</strong>{% if entry.note %}<small
+                            class="block muted">{{ entry.note }}</small>{% endif %}{% if entry.method %}<small
+                            class="block muted">{{ entry.method }}</small>{% endif %}</td>
+                    <td class="numeric strong {% if entry.amount_cents > 0 %}positive{% endif %}">
+                        {% if entry.amount_cents > 0 %}+{% endif %}{{ entry.amount_cents|euros }}</td>
+                </tr>{% empty %}<tr>
+                    <td colspan="4" class="empty-state">Noch keine Buchungen.</td>
+                </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    {% if entries.has_other_pages %}<nav class="pagination" aria-label="Buchungen">
+        {% if entries.has_previous %}<a class="button secondary"
+            href="?entries_page={{ entries.previous_page_number }}">Zurück</a>{% endif %}
+        <span>{{ entries.number }} / {{ entries.paginator.num_pages }}</span>
+        {% if entries.has_next %}<a class="button secondary"
+            href="?entries_page={{ entries.next_page_number }}">Weiter</a>{% endif %}
+    </nav>{% endif %}
+</section>
+
+<section class="section-space">
+    <h2>Auszahlungen</h2>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Methode</th>
+                    <th>Status</th>
+                    <th>Empfänger / Notiz</th>
+                    <th class="numeric">Betrag</th>
+                </tr>
+            </thead>
+            <tbody>{% for payout in payouts %}<tr>
+                    <td class="nowrap">{{ payout.created_at|date:'d.m.Y H:i' }}</td>
+                    <td>{{ payout.get_method_display }}</td>
+                    <td>{{ payout.get_status_display }}</td>
+                    <td>{{ payout.recipient }}{% if payout.note %}<small
+                            class="block muted">{{ payout.note }}</small>{% endif %}</td>
+                    <td class="numeric">{{ payout.amount_cents|euros }}</td>
+                </tr>{% empty %}<tr>
+                    <td colspan="5" class="empty-state">Noch keine Auszahlungen.</td>
+                </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    {% if payouts.has_other_pages %}<nav class="pagination" aria-label="Auszahlungen">
+        {% if payouts.has_previous %}<a class="button secondary"
+            href="?payouts_page={{ payouts.previous_page_number }}">Zurück</a>{% endif %}
+        <span>{{ payouts.number }} / {{ payouts.paginator.num_pages }}</span>
+        {% if payouts.has_next %}<a class="button secondary"
+            href="?payouts_page={{ payouts.next_page_number }}">Weiter</a>{% endif %}
+    </nav>{% endif %}
+</section>
+
+<section class="section-space">
+    <h2>Offene PayPal-Einzahlungen</h2>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Datum</th>
+                    <th>Teilnehmer</th>
+                    <th>Zweck</th>
+                    <th>Status</th>
+                    <th class="numeric">Betrag</th>
+                </tr>
+            </thead>
+            <tbody>{% for payment in pending_payments %}<tr>
+                    <td class="nowrap">{{ payment.created_at|date:'d.m.Y H:i' }}</td>
+                    <td>{{ payment.user.name }}</td>
+                    <td>{{ payment.get_purpose_display }}</td>
+                    <td>{{ payment.get_status_display }}</td>
+                    <td class="numeric">{{ payment.amount_cents|euros }}</td>
+                </tr>{% empty %}<tr>
+                    <td colspan="5" class="empty-state">Keine offenen PayPal-Einzahlungen.</td>
+                </tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    {% if pending_payments.has_other_pages %}<nav class="pagination" aria-label="Offene PayPal-Einzahlungen">
+        {% if pending_payments.has_previous %}<a class="button secondary"
+            href="?paypal_page={{ pending_payments.previous_page_number }}">Zurück</a>{% endif %}
+        <span>{{ pending_payments.number }} / {{ pending_payments.paginator.num_pages }}</span>
+        {% if pending_payments.has_next %}<a class="button secondary"
+            href="?paypal_page={{ pending_payments.next_page_number }}">Weiter</a>{% endif %}
+    </nav>{% endif %}
+</section>
+{% endblock %}
