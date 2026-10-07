@@ -9,10 +9,10 @@ the user-facing brand is Die Dein Stammtisch. Preserve the existing German UI.
 - Use Python 3.12+, Django 5.2 LTS, uv, and SQLite by default.
 - Keep the server-rendered Django templates and progressive JavaScript approach.
   There is no frontend build pipeline or external CDN requirement.
-- Read [README.md](../README.md) for setup, accounting rules, PayPal operations,
+- Read [README.md](README.md) for setup, accounting rules, PayPal operations,
   deployment, and backups. Check the implementation when documentation disagrees.
 - Dependency constraints and Ruff configuration live in
-  [pyproject.toml](../pyproject.toml); preserve [uv.lock](../uv.lock).
+  [pyproject.toml](pyproject.toml); preserve [uv.lock](uv.lock).
 
 ## Working Method
 
@@ -30,9 +30,15 @@ the user-facing brand is Die Dein Stammtisch. Preserve the existing German UI.
    Do not claim live PayPal verification from mocked tests.
 
 Use fish-compatible commands. Prefer VS Code-integrated tools where available.
-Do not read or print `.env`, credentials, cookies, database contents, or personal
-data for routine exploration. Use [deployment.example](../deployment.example)
-to discover configuration names. Never send real payments as a test.
+Do not read or print `.env`, credentials, cookies, database contents, audit logs,
+or personal data for routine exploration. Use
+[deployment.example](deployment.example) and
+[config/settings.py](config/settings.py) to discover configuration names.
+Never send real payments as a test.
+
+Preserve existing action logging through [audit.record](weisswurstrunde/audit.py).
+Audit logs contain actor emails and action details; they do not replace the ledger.
+`AUDIT_LOG_FILE` defaults to `audit.log` in the repository root.
 
 ## Non-Negotiable Business Rules
 
@@ -48,19 +54,26 @@ to discover configuration names. Never send real payments as a test.
 - Regular edits require an open event before its deadline. Admin corrections do
   not reopen locked or settled events, and must still reject stale submissions.
 - Manual payments are self-reported credits, not bank-verified transactions.
-- PayPal browser redirects never prove payment. Only server-verified provider
-  results may create credits; retries must not duplicate ledger entries.
+- PayPal uses PayPal.me links and IMAP notification matching. Browser redirects
+  never prove payment. Only matching incoming notifications from the configured
+  mailbox create PayPal credits; ambiguous matches stay pending, and retries
+  must not duplicate ledger entries.
 
 ## Baseline Verification
 
-Run commands from the repository root. Follow the local environment setup in
-[README.md](../README.md); never reuse example keys in production.
+Run commands from the repository root. The command-scoped settings below are for
+local checks only: `SECRET_KEY` is required, `DEBUG=true` allows test HTTP requests,
+and `AUDIT_LOG_FILE=/dev/null` keeps test activity out of the application audit log.
+For application setup, follow [README.md](README.md); never reuse test keys or
+disable audit logging in production.
 
 ```fish
 uv sync --frozen
 uv run ruff check .
-uv run python manage.py makemigrations --check --dry-run
-uv run python manage.py test
+env SECRET_KEY=test-only-key DEBUG=true AUDIT_LOG_FILE=/dev/null \
+    uv run python manage.py makemigrations --check --dry-run
+env SECRET_KEY=test-only-key DEBUG=true AUDIT_LOG_FILE=/dev/null \
+    uv run python manage.py test
 node --test tests/orders.test.cjs
 ```
 
