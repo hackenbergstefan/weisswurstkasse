@@ -1080,6 +1080,7 @@ input[type="checkbox"] {
 }
 
 .account-summary .summary-total {
+  grid-column: 1 / -1;
   background: var(--green-light);
 }
 
