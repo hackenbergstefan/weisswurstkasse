@@ -24,6 +24,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from qrcode.image.svg import SvgPathImage
 
 from . import paypal, services
+from .audit import record
 from .forms import (
     AddOrderForm,
     CorrectionForm,
@@ -107,6 +108,13 @@ def register(request):
                     user = form.save()
                     for event in Event.objects.filter(status="OPEN", deadline__gt=timezone.now()):
                         services.provision_order(user, event)
+                    record(
+                        "user_registered",
+                        user,
+                        user_id=user.pk,
+                        name=user.name,
+                        email=user.email,
+                    )
                 login(request, user)
                 messages.success(request, "Willkommen in der Runde.")
                 return redirect("dashboard")
@@ -438,6 +446,7 @@ def profile(request):
                 try:
                     with transaction.atomic():
                         profile_form.save()
+                    record("profile_edited", request.user, user_id=request.user.pk)
                     messages.success(request, "Profil gespeichert.")
                     return redirect("profile")
                 except IntegrityError:
@@ -446,6 +455,7 @@ def profile(request):
             password_form = PasswordChangeForm(request.user, request.POST, prefix="password")
             if password_form.is_valid():
                 user = password_form.save()
+                record("password_changed", request.user, user_id=request.user.pk)
                 update_session_auth_hash(request, user)
                 messages.success(request, "Passwort geaendert.")
                 return redirect("profile")
@@ -453,6 +463,13 @@ def profile(request):
             vacation_form = VacationForm(request.POST, instance=request.user, prefix="vacation")
             if vacation_form.is_valid():
                 vacation_form.save()
+                record(
+                    "vacation_edited",
+                    request.user,
+                    user_id=request.user.pk,
+                    vacation_start=request.user.vacation_start,
+                    vacation_end=request.user.vacation_end,
+                )
                 messages.success(request, "Urlaubszeitraum gespeichert.")
                 return redirect("profile")
         elif action == "defaults":
@@ -495,7 +512,16 @@ def products(request):
     if request.method == "POST" and form.is_valid():
         try:
             with transaction.atomic():
-                form.save()
+                saved_product = form.save()
+            record(
+                "product_edited",
+                request.user,
+                product_id=saved_product.pk,
+                name=saved_product.name,
+                event_type=saved_product.event_type,
+                price_cents=saved_product.price_cents,
+                active=saved_product.active,
+            )
             messages.success(request, "Produkt gespeichert. Bestehende Preise bleiben erhalten.")
             return redirect("products")
         except IntegrityError:
@@ -676,6 +702,7 @@ def paypal_delete(request, payment_id):
         status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING],
     )
     payment.delete()
+    record("paypal_payment_deleted", request.user, payment_id=payment.pk)
     messages.success(request, "Ausstehende PayPal-Zahlung entfernt.")
     return redirect("payments")
 

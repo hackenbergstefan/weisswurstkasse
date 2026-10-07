@@ -10,6 +10,7 @@ from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.utils import timezone
 
+from .audit import record
 from .models import (
     DefaultItem,
     Event,
@@ -46,6 +47,13 @@ def save_order(order_id, quantities, actor, expected_version=None):
     if expected_version is not None and order.version != expected_version:
         raise ValidationError("Die Bestellung wurde inzwischen geaendert. Bitte neu laden.")
     old_items = {item.product_id: item for item in order.items.all()}
+    old_snapshot = {
+        str(product_id): {
+            "quantity": item.quantity,
+            "unit_price_cents": item.unit_price_cents,
+        }
+        for product_id, item in old_items.items()
+    }
     products = {
         product.pk: product
         for product in Product.objects.filter(pk__in=quantities, event_type=order.event.event_type)
@@ -84,6 +92,23 @@ def save_order(order_id, quantities, actor, expected_version=None):
             reference=f"order:{order.pk}:{order.version}",
             note=f"{order.event.get_event_type_display()} {order.event.date:%d.%m.%Y} (Stand {order.version})",
         )
+    record(
+        "order_edited",
+        actor,
+        order_id=order.pk,
+        user_id=order.user_id,
+        event_id=order.event_id,
+        version=order.version,
+        old_items=old_snapshot,
+        new_items={
+            str(item.product_id): {
+                "quantity": item.quantity,
+                "unit_price_cents": item.unit_price_cents,
+            }
+            for item in order.items.all()
+        },
+        total_cents=order.total,
+    )
     return order
 
 
@@ -129,6 +154,7 @@ def save_defaults(user, quantities):
             if quantities[product.pk]
         ]
     )
+    record("defaults_edited", user, user_id=user.pk, quantities=quantities)
 
 
 @transaction.atomic
@@ -141,6 +167,7 @@ def add_order(user, event, actor):
     if not participant.is_active:
         raise ValidationError("Der Teilnehmer ist nicht aktiv.")
     order, _ = Order.objects.get_or_create(user=participant, event=event)
+    record("order_created", actor, order_id=order.pk, user_id=user.pk, event_id=event.pk)
     return order
 
 
@@ -175,6 +202,7 @@ def cancel_event(event_id, actor):
             )
     event.status = Event.Status.CANCELLED
     event.save(update_fields=["status"])
+    record("event_cancelled", actor, event_id=event.pk, order_count=len(orders))
     return event
 
 
@@ -193,6 +221,14 @@ def create_payout(amount_cents, method, recipient, note, actor):
         status=Payout.Status.COMPLETED if method == Payout.Method.CASH else Payout.Status.PENDING,
     )
     payout.save(update_fields=["status", "provider_batch_id"])
+    record(
+        "payout_created",
+        actor,
+        payout_id=payout.pk,
+        amount_cents=amount_cents,
+        method=method,
+        status=payout.status,
+    )
     return payout
 
 
@@ -250,6 +286,31 @@ def send_order_close_emails(event_id):
         User.objects.filter(is_active=True, is_admin=True).values_list("email", flat=True)
     )
     if admin_emails:
+        record(
+            "deadline_order_list_sent",
+            event_id=event.pk,
+            event_type=event.event_type,
+            event_date=event.date,
+            orders=[
+                {
+                    "order_id": order.pk,
+                    "user_id": order.user_id,
+                    "user_name": order.user.name,
+                    "user_email": order.user.email,
+                    "items": [
+                        {
+                            "product_id": item.product_id,
+                            "product": item.product.name,
+                            "quantity": item.quantity,
+                            "unit_price_cents": item.unit_price_cents,
+                        }
+                        for item in order.items.all()
+                    ],
+                    "total_cents": order.total,
+                }
+                for order in orders
+            ],
+        )
         product_totals = {}
         for order in orders:
             for item in order.items.all():
@@ -297,6 +358,12 @@ def generate_events(today=None):
             )
             if created:
                 created_count += 1
+                record(
+                    "event_created",
+                    event_id=event.pk,
+                    event_type=event.event_type,
+                    event_date=event.date,
+                )
             if event.editable:
                 for user in active_users:
                     provision_order(user, event)
@@ -307,10 +374,16 @@ def generate_events(today=None):
     )
     Event.objects.filter(pk__in=closing_event_ids).update(status=Event.Status.LOCKED)
     for event_id in closing_event_ids:
+        record("event_locked", event_id=event_id)
         transaction.on_commit(lambda event_id=event_id: send_order_close_emails(event_id))
-    Event.objects.filter(date__lt=today).exclude(status=Event.Status.SETTLED).update(
-        status=Event.Status.SETTLED
+    settling_event_ids = list(
+        Event.objects.filter(date__lt=today)
+        .exclude(status=Event.Status.SETTLED)
+        .values_list("pk", flat=True)
     )
+    Event.objects.filter(pk__in=settling_event_ids).update(status=Event.Status.SETTLED)
+    for event_id in settling_event_ids:
+        record("event_settled", event_id=event_id)
     return created_count
 
 
@@ -331,7 +404,7 @@ def manual_payment(user, amount_cents, method, note, request_id, actor=None):
         if (existing.amount_cents, existing.method) != (amount_cents, method):
             raise ValidationError("Diese Zahlungsanfrage wurde bereits anders verbucht.")
         return existing
-    return LedgerEntry.objects.create(
+    entry = LedgerEntry.objects.create(
         user=user,
         amount_cents=amount_cents,
         kind=LedgerEntry.Kind.MANUAL,
@@ -340,6 +413,15 @@ def manual_payment(user, amount_cents, method, note, request_id, actor=None):
         reference=reference,
         recorded_by=actor or user,
     )
+    record(
+        "manual_payment_recorded",
+        actor or user,
+        entry_id=entry.pk,
+        user_id=user.pk,
+        amount_cents=amount_cents,
+        method=method,
+    )
+    return entry
 
 
 @transaction.atomic
@@ -348,7 +430,7 @@ def reverse_manual(entry_id, actor, note):
     User.objects.select_for_update().get(pk=entry.user_id)
     if entry.kind != LedgerEntry.Kind.MANUAL or not note.strip():
         raise ValidationError("Nur manuelle Zahlungen koennen mit Begruendung korrigiert werden.")
-    reversal, _ = LedgerEntry.objects.get_or_create(
+    reversal, created = LedgerEntry.objects.get_or_create(
         reference=f"correction:{entry.pk}",
         defaults={
             "user": entry.user,
@@ -360,6 +442,14 @@ def reverse_manual(entry_id, actor, note):
             "method": entry.method,
         },
     )
+    if created:
+        record(
+            "manual_payment_reversed",
+            actor,
+            entry_id=entry.pk,
+            reversal_id=reversal.pk,
+            amount_cents=reversal.amount_cents,
+        )
     return reversal
 
 

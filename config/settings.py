@@ -103,15 +103,35 @@ if EMAIL_USE_TLS and EMAIL_USE_SSL:
     raise ImproperlyConfigured("EMAIL_USE_TLS and EMAIL_USE_SSL cannot both be true.")
 EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "weisswurstrunde@localhost")
+AUDIT_LOG_FILE = os.environ.get("AUDIT_LOG_FILE", str(BASE_DIR / "audit.log"))
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {
-        "weisswurstrunde.paypal": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
+    "formatters": {
+        "human": {
+            "format": "[{asctime}] {levelname} {name}: {message}",
+            "style": "{",
         }
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": AUDIT_LOG_FILE,
+            "encoding": "utf-8",
+            "formatter": "human",
+        },
+    },
+    "loggers": {
+        "weisswurstrunde": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "weisswurstrunde.audit": {
+            "handlers": ["file"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }

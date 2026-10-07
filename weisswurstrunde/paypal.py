@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .audit import record
 from .models import LedgerEntry, Payout, PayPalPayment, User
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,13 @@ def create_payment(user, amount_cents, purpose, request_id):
                 purpose=purpose,
                 status=PayPalPayment.Status.PENDING,
                 approval_url=_paypal_me_url(amount_cents + matching_cents),
+            )
+            record(
+                "paypal_payment_created",
+                user,
+                payment_id=payment.pk,
+                amount_cents=payment.amount_cents,
+                purpose=purpose,
             )
         elif payment.purpose != purpose or (
             purpose == "TOPUP"
@@ -274,7 +282,7 @@ def _apply_message(data, payment_id=None):
             note_parts.append(f"Empfänger: {data['recipient_name']}")
         if data["reference"]:
             note_parts.append(f"Transaktionscode: {data['reference']}")
-        Payout.objects.create(
+        payout = Payout.objects.create(
             amount_cents=data["amount_cents"],
             method=Payout.Method.PAYPAL,
             status=Payout.Status.COMPLETED,
@@ -284,6 +292,13 @@ def _apply_message(data, payment_id=None):
             provider_message_id=data["message_id"],
             created_by=actor,
             created_at=data["received_at"],
+        )
+        record(
+            "paypal_payout_completed",
+            actor,
+            payout_id=payout.pk,
+            amount_cents=payout.amount_cents,
+            provider_reference=provider_reference,
         )
         return True
     payment = _match_payment(data)
@@ -306,6 +321,13 @@ def _apply_message(data, payment_id=None):
     )
     payment.save(
         update_fields=["status", "provider_reference", "provider_message_id", "updated_at"]
+    )
+    record(
+        "paypal_payment_completed",
+        payment.user,
+        payment_id=payment.pk,
+        amount_cents=payment.amount_cents,
+        provider_reference=payment.provider_reference,
     )
     return True
 

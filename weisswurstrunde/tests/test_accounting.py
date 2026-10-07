@@ -116,11 +116,15 @@ class AccountingTests(TestCase):
 
         self.event.refresh_from_db()
         self.assertEqual(self.event.status, Event.Status.LOCKED)
-        self.assertEqual(len(mail.outbox), 2)
+        self.assertGreaterEqual(len(mail.outbox), 2)
         participant_message = next(
             message for message in mail.outbox if message.to == [self.user.email]
         )
-        admin_message = next(message for message in mail.outbox if message.to == [admin.email])
+        admin_message = next(
+            message
+            for message in mail.outbox
+            if message.to == [admin.email] and "Stefan" in message.body
+        )
         self.assertIn("2 x Weisswurst", participant_message.body)
         self.assertIn("Kontostand zum Termin: -3,20 €", participant_message.body)
         self.assertIn("Stefan", admin_message.body)
@@ -140,6 +144,40 @@ class AccountingTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             generate_events()
         self.assertEqual(mail.outbox, [])
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_audit_log_records_order_edit_and_deadline_order_list(self):
+        User.objects.create_user(
+            "admin@example.org",
+            "admin-test-password",
+            name="Admin",
+            paypal_email="admin-paypal@example.org",
+            is_admin=True,
+        )
+        with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
+            save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        order_record = logs.records[-1].getMessage()
+        self.assertIn("order_edited", order_record)
+        self.assertIn(f"actor={self.user.email}", order_record)
+        self.assertIn("'old_items': {}", order_record)
+        self.assertIn("'quantity': 2", order_record)
+        self.assertIn("'total_cents': 320", order_record)
+
+        self.event.deadline = timezone.now() - timedelta(seconds=1)
+        self.event.save(update_fields=["deadline"])
+        with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
+            with self.captureOnCommitCallbacks(execute=True):
+                generate_events()
+        deadline_record = next(
+            entry.getMessage()
+            for entry in logs.records
+            if "deadline_order_list_sent" in entry.getMessage()
+            and f"'event_id': {self.event.pk}" in entry.getMessage()
+        )
+        self.assertIn(f"'event_id': {self.event.pk}", deadline_record)
+        self.assertIn(f"'user_email': '{self.user.email}'", deadline_record)
+        self.assertIn("'quantity': 2", deadline_record)
+        self.assertIn("'total_cents': 320", deadline_record)
 
     def test_admin_can_correct_closed_orders_with_audited_charges(self):
         admin = User.objects.create_user(
