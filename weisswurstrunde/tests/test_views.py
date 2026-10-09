@@ -381,9 +381,9 @@ class ViewTests(TestCase):
         self.assertContains(response, f"/orders/?event={past_event.pk}")
         self.assertNotContains(response, "Noch keine vergangenen Bestellungen.")
 
-    def test_expired_deadline_moves_future_dated_event_to_history(self):
+    def test_current_day_event_stays_in_orders_until_next_day(self):
         event = Event.objects.create(
-            date=timezone.localdate() + timedelta(days=2),
+            date=timezone.localdate(),
             deadline=timezone.now() - timedelta(minutes=1),
         )
         order = Order.objects.create(user=self.user, event=event)
@@ -394,8 +394,8 @@ class ViewTests(TestCase):
         dashboard = self.client.get("/")
 
         self.assertEqual(history.status_code, 200)
-        self.assertIn(event, history.context["events"])
-        self.assertNotIn(event, [row["event"] for row in orders.context["summaries"]])
+        self.assertNotIn(event, history.context["events"])
+        self.assertIn(event, [row["event"] for row in orders.context["summaries"]])
         self.assertNotIn(order.pk, [row["order"].pk for row in dashboard.context["upcoming"]])
 
     def test_password_change_preserves_session(self):
