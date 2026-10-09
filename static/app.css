@@ -2219,6 +2219,7 @@ tr:nth-child(3n) .avatar {
   .stammtisch-scene {
     width: 100%;
     left: 0;
+    object-position: left center;
   }
 
   .hero-copy {
