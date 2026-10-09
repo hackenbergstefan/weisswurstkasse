@@ -14,6 +14,7 @@ urlpatterns = [
     path("order-history/", views.order_history, name="order_history"),
     path("orders/<int:order_id>/", views.edit_order, name="edit_order"),
     path("events/<int:event_id>/cancel/", views.cancel_event, name="cancel_event"),
+    path("events/<int:event_id>/free/", views.make_event_free, name="make_event_free"),
     path("events/<int:event_id>/orders/add/", views.add_order, name="add_order"),
     path("participants/", views.participants, name="participants"),
     path("profile/", views.profile, name="profile"),

@@ -48,7 +48,7 @@
             class="event-type-icon" src="{% static 'leberkas-neu.png' %}" alt="" width="759"
             height="755">{% endif %}<strong>{{ item.order.event.get_event_type_display }} &middot;
             {{ item.order.event.date|date:'l, j. F' }}{% if item.order.event.status == 'CANCELLED' %} &middot;
-            abgesagt{% endif %}</strong><span>{% for order_item in item.order.items.all %}{{ order_item.quantity }}
+            abgesagt{% endif %}{% if item.order.event.is_free %} &middot; Kostenlos{% endif %}</strong><span>{% for order_item in item.order.items.all %}{{ order_item.quantity }}
             {{ order_item.product.name }}{% if not forloop.last %}
             &middot; {% endif %}{% empty %}Noch nichts bestellt{% endfor %}</span></span><strong
           class="future-total">{{ item.display_total|euros }}</strong><i class="expand-icon" data-lucide="chevron-down"

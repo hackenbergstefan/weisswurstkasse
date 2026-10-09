@@ -154,6 +154,15 @@ fixed after creation so existing orders and defaults cannot change categories.
   In a date's detail view, admins can also select a participant without an order
   and use **Bestellung hinzufuegen**, including after the deadline. New orders
   start empty; quantities are entered explicitly and charged when saved.
+- Admins can permanently mark a future open event as **Kostenlos** before its
+  deadline using the gift action in **Alle Bestellungen**. This excludes today's,
+  past, cancelled, locked and settled events. Confirmation is required. All
+  existing order quantities are preserved and their saved prices become zero;
+  compensating ledger entries refund existing charges without changing historical
+  ledger entries. Later orders and edits for this event remain free, including
+  admin corrections after the deadline. Order versions advance to reject stale
+  submissions. Participants see the free status and zero prices in their orders
+  and notification emails. This action has no undo.
 - Every active participant gets an order when an event is created. Default orders
   are copied once; editing defaults does not change existing orders. Registration
   also creates empty orders for all existing open events.

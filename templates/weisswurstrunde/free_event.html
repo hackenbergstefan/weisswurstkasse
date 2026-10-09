@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Termin kostenlos stellen{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">{{ event.get_event_type_display }} &middot;
+    {{ event.date|date:'d.m.Y' }}</p><h1>Termin kostenlos stellen?</h1></div></div>
+<p>Alle bestehenden und zuk&uuml;nftigen Bestellungen dieses Termins werden kostenlos.
+    Mengen bleiben erhalten. Bereits gebuchte Kosten werden ausgeglichen.</p>
+<p>Diese Aktion kann nicht r&uuml;ckg&auml;ngig gemacht werden.</p>
+<form method="post" class="filter-form">
+    {% csrf_token %}
+    <button type="submit" class="button primary"><i data-lucide="gift" aria-hidden="true"></i>
+        Kostenlos stellen</button>
+    <a class="quiet-link" href="{% url 'orders' %}?event={{ event.pk }}">Abbrechen</a>
+</form>
+{% endblock %}

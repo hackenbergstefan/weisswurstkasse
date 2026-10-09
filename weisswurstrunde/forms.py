@@ -135,7 +135,14 @@ class QuantitiesForm(forms.Form):
     version = forms.IntegerField(min_value=0, required=False, widget=forms.HiddenInput())
 
     def __init__(
-        self, *args, products, quantities=None, version=None, show_event_type=False, **kwargs
+        self,
+        *args,
+        products,
+        quantities=None,
+        version=None,
+        show_event_type=False,
+        is_free=False,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.products = list(products)
@@ -151,7 +158,7 @@ class QuantitiesForm(forms.Form):
                 max_value=100,
                 initial=(quantities or {}).get(product.pk, 0),
                 widget=forms.NumberInput(
-                    attrs={"inputmode": "numeric", "data-price": product.price_cents}
+                    attrs={"inputmode": "numeric", "data-price": 0 if is_free else product.price_cents}
                 ),
             )
 

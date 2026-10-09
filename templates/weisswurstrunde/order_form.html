@@ -2,6 +2,8 @@
 <form method="post" action="{% url 'edit_order' order.pk %}" class="order-form {% if can_edit %}order-layout{% endif %}"
   data-fixed-total="{{ fixed_total }}">
   {% csrf_token %}{{ form.version }}{{ form.non_field_errors }}
+  {% if order.event.is_free %}<span class="badge"><i data-lucide="gift" aria-hidden="true"></i>
+    Dieser Termin ist kostenlos</span>{% endif %}
   {% if can_edit %}
   {% if not order.event.editable %}<span class="badge locked"><i data-lucide="shield-check"
       aria-hidden="true"></i>Admin-Korrektur</span>{% endif %}
@@ -22,7 +24,7 @@
             aria-hidden="true"></i>{% endif %}
         </div>
         <div class="product-card-body"><label for="{{ row.field.id_for_label }}">{{ row.product.name }}</label><span
-            class="product-price">{{ row.product.price_cents|euros }}</span>
+            class="product-price">{{ row.price_cents|euros }}</span>
           <div class="quantity-control"><button type="button" class="step-button" data-step="-1"
               aria-label="{{ row.product.name }} verringern" title="Verringern"><i data-lucide="minus"
                 aria-hidden="true"></i></button>{{ row.field }}<button type="button" class="step-button" data-step="1"
@@ -43,7 +45,7 @@
       {% for row in rows %}<div class="receipt-line" data-receipt-for="{{ row.field.id_for_label }}"
         {% if not row.field.value or row.field.value == '0' %}hidden{% endif %}><span><span
             data-receipt-quantity>{{ row.field.value|default:0 }}</span> &times; {{ row.product.name }}</span><span
-          data-receipt-total>{{ row.product.price_cents|euros }} / {{ row.product.unit }}</span></div>{% endfor %}
+          data-receipt-total>{{ row.price_cents|euros }} / {{ row.product.unit }}</span></div>{% endfor %}
       {% for item in inactive %}<div class="receipt-line muted"><span>{{ item.quantity }} &times;
           {{ item.product.name }} <small>inaktiv</small></span><span>{{ item.unit_price_cents|euros }} /
           {{ item.product.unit }}</span>

@@ -32,7 +32,11 @@
 <h2 class="section-title {% if event.status == 'CANCELLED' %}event-cancelled{% endif %}">
 	{{ event.get_event_type_display }} &middot; {{ event.date|date:'d.m.Y' }}{% if event.status == 'CANCELLED' %}
 	<small>(abgesagt)</small>{% endif %}
+	{% if event.is_free %}<small> &middot; Kostenlos</small>{% endif %}
 </h2>
+{% if request.user.is_admin and event.can_make_free %}<a class="icon-button"
+	href="{% url 'make_event_free' event.pk %}" title="Termin kostenlos stellen"
+	aria-label="Termin kostenlos stellen"><i data-lucide="gift" aria-hidden="true"></i></a>{% endif %}
 {% if request.user.is_admin and event.status != 'CANCELLED' and event.status != 'SETTLED' %}<form method="post"
 	action="{% url 'cancel_event' event.pk %}" class="event-cancel-form">{% csrf_token %}<button type="submit"
 		class="icon-button danger" title="Termin absagen" aria-label="Termin absagen"><i data-lucide="calendar-x-2"
@@ -107,10 +111,13 @@
 								data-lucide="arrow-up-right" aria-hidden="true"></i></a><small
 							class="block muted">{{ summary.event.get_event_type_display }}{% if summary.event.status == 'CANCELLED' %}
 							&middot;
-							abgesagt{% endif %}</small></td>
+							abgesagt{% endif %}{% if summary.event.is_free %} &middot; Kostenlos{% endif %}</small></td>
 					{% for quantity in summary.quantities %}<td class="numeric strong">
 						{{ quantity|default_if_none:'-' }}</td>{% endfor %}
 					{% if request.user.is_admin %}<td>
+						{% if summary.event.can_make_free %}<a class="icon-button"
+							href="{% url 'make_event_free' summary.event.pk %}" title="Termin kostenlos stellen"
+							aria-label="Termin kostenlos stellen"><i data-lucide="gift" aria-hidden="true"></i></a>{% endif %}
 						{% if summary.event.status != 'CANCELLED' and summary.event.status != 'SETTLED' %}<form
 							method="post" action="{% url 'cancel_event' summary.event.pk %}">{% csrf_token %}<button
 								type="submit" class="icon-button danger" title="Termin absagen"

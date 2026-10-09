@@ -99,6 +99,7 @@ class Event(models.Model):
     date = models.DateField()
     deadline = models.DateTimeField()
     status = models.CharField(max_length=10, choices=Status, default=Status.OPEN)
+    is_free = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["date", "event_type"]
@@ -116,6 +117,10 @@ class Event(models.Model):
             and user.is_active
             and (self.editable or user.is_admin)
         )
+
+    @property
+    def can_make_free(self):
+        return not self.is_free and self.date > timezone.localdate() and self.editable
 
 
 class Order(models.Model):

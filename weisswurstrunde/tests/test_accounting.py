@@ -20,12 +20,14 @@ from weisswurstrunde.models import (
 from weisswurstrunde.services import (
     create_payout,
     generate_events,
+    make_event_free,
     manual_payment,
     provision_order,
     reconcile,
     reverse_manual,
     save_defaults,
     save_order,
+    send_order_close_emails,
 )
 
 
@@ -43,6 +45,102 @@ class AccountingTests(TestCase):
             deadline=timezone.now() + timedelta(days=2),
         )
         self.order = Order.objects.create(user=self.user, event=self.event)
+
+    def test_free_event_preserves_quantities_and_compensates_charges(self):
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.order.refresh_from_db()
+        stale_version = self.order.version
+        self.product.active = False
+        self.product.save(update_fields=["active"])
+        empty_user = User.objects.create_user(
+            "empty@example.org", name="Empty", paypal_email="empty@example.org"
+        )
+        empty_order = Order.objects.create(user=empty_user, event=self.event)
+        with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
+            make_event_free(self.event.pk, self.user)
+        self.assertIn("event_made_free", " ".join(logs.output))
+        self.order.refresh_from_db()
+        empty_order.refresh_from_db()
+        self.event.refresh_from_db()
+        self.assertTrue(self.event.is_free)
+        self.assertEqual(self.order.items.get().quantity, 2)
+        self.assertEqual(self.order.items.get().unit_price_cents, 0)
+        self.assertEqual(self.order.version, stale_version + 1)
+        self.assertEqual(empty_order.version, 1)
+        self.assertEqual(
+            list(self.user.ledger.values_list("amount_cents", flat=True)), [-320, 320]
+        )
+        self.assertEqual(self.user.balance, 0)
+        make_event_free(self.event.pk, self.user)
+        self.assertEqual(self.user.ledger.count(), 2)
+        with self.assertRaises(ValidationError):
+            save_order(self.order.pk, {self.product.pk: 2}, self.user, stale_version)
+        self.product.active = True
+        self.product.save(update_fields=["active"])
+        save_order(self.order.pk, {self.product.pk: 3}, self.user)
+        save_order(empty_order.pk, {self.product.pk: 1}, empty_user)
+        new_user = User.objects.create_user(
+            "new@example.org", name="New", paypal_email="new@example.org"
+        )
+        DefaultItem.objects.create(user=new_user, product=self.product, quantity=4)
+        new_order = provision_order(new_user, self.event)
+        self.assertEqual(new_order.items.get().quantity, 4)
+        self.assertEqual(new_order.total, 0)
+        self.assertEqual(Order.objects.get(pk=self.order.pk).total, 0)
+        self.assertEqual(Order.objects.get(pk=empty_order.pk).total, 0)
+        self.assertEqual(reconcile(), [])
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_free_event_is_visible_in_close_and_correction_emails(self):
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        make_event_free(self.event.pk, self.user)
+        self.event.status = Event.Status.LOCKED
+        self.event.save(update_fields=["status"])
+        send_order_close_emails(self.event.pk)
+        self.assertEqual(len(mail.outbox), 2)
+        for message in mail.outbox:
+            self.assertIn("Dieser Termin ist kostenlos.", message.body)
+            self.assertIn("Kostenlos" if message.subject.startswith("Deine") else "kostenlos",
+                          message.alternatives[0][0])
+            self.assertIn("0,00", message.body)
+        mail.outbox.clear()
+        self.order.refresh_from_db()
+        with self.captureOnCommitCallbacks(execute=True):
+            save_order(self.order.pk, {self.product.pk: 3}, self.user, self.order.version)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Dieser Termin ist kostenlos.", mail.outbox[0].body)
+        self.assertIn("Neu: 0,00", mail.outbox[0].body)
+        self.assertEqual(Order.objects.get(pk=self.order.pk).total, 0)
+        self.assertEqual(reconcile(), [])
+
+    def test_make_event_free_rejects_unauthorized_and_ineligible_events(self):
+        with self.assertRaises(PermissionDenied):
+            make_event_free(self.event.pk, self.user)
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        for changes in (
+            {"date": timezone.localdate()},
+            {"date": timezone.localdate() - timedelta(days=1)},
+            {"deadline": timezone.now() - timedelta(seconds=1)},
+            {"status": Event.Status.LOCKED},
+            {"status": Event.Status.SETTLED},
+            {"status": Event.Status.CANCELLED},
+        ):
+            with self.subTest(changes=changes):
+                event = Event.objects.get(pk=self.event.pk)
+                for field, value in changes.items():
+                    setattr(event, field, value)
+                event.save()
+                with self.assertRaises(ValidationError):
+                    make_event_free(event.pk, self.user)
+                self.assertFalse(Event.objects.get(pk=event.pk).is_free)
+                Event.objects.filter(pk=event.pk).update(
+                    date=self.event.date, deadline=self.event.deadline, status=Event.Status.OPEN
+                )
 
     def test_balance_includes_orders_only_from_their_event_date(self):
         save_order(self.order.pk, {self.product.pk: 2}, self.user)

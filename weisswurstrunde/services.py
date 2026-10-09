@@ -76,7 +76,10 @@ def save_order(order_id, quantities, actor, expected_version=None):
             OrderItem.objects.update_or_create(
                 order=order,
                 product=product,
-                defaults={"quantity": quantity, "unit_price_cents": product.price_cents},
+                defaults={
+                    "quantity": quantity,
+                    "unit_price_cents": 0 if order.event.is_free else product.price_cents,
+                },
             )
         else:
             order.items.filter(product=product).delete()
@@ -194,6 +197,47 @@ def add_order(user, event, actor):
     order, _ = Order.objects.get_or_create(user=participant, event=event)
     record("order_created", actor, order_id=order.pk, user_id=user.pk, event_id=event.pk)
     return order
+
+
+@transaction.atomic
+def make_event_free(event_id, actor):
+    if not actor.is_active or not actor.is_admin:
+        raise PermissionDenied
+    event = Event.objects.select_for_update().get(pk=event_id)
+    if event.is_free:
+        return event
+    if not event.can_make_free:
+        raise ValidationError("Nur kuenftige offene Termine vor Bestellschluss sind freistellbar.")
+    user_ids = Order.objects.filter(event=event).values_list("user_id", flat=True)
+    list(User.objects.select_for_update().filter(pk__in=user_ids).order_by("pk"))
+    orders = list(Order.objects.select_for_update().filter(event=event).prefetch_related("items"))
+    event.is_free = True
+    event.save(update_fields=["is_free"])
+    refunded_cents = 0
+    for order in orders:
+        total = order.total
+        order.items.update(unit_price_cents=0)
+        order.version += 1
+        order.save(update_fields=["version", "updated_at"])
+        if total:
+            LedgerEntry.objects.create(
+                user=order.user,
+                amount_cents=total,
+                kind=LedgerEntry.Kind.ORDER,
+                order=order,
+                recorded_by=actor,
+                reference=f"event-free:{event.pk}:order:{order.pk}",
+                note=f"{event.get_event_type_display()} {event.date:%d.%m.%Y} kostenlos",
+            )
+            refunded_cents += total
+    record(
+        "event_made_free",
+        actor,
+        event_id=event.pk,
+        order_count=len(orders),
+        refunded_cents=refunded_cents,
+    )
+    return event
 
 
 @transaction.atomic

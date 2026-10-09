@@ -263,6 +263,81 @@ class ViewTests(TestCase):
         self.assertEqual(str(self.user.vacation_start), "2030-07-01")
         self.assertEqual(str(self.user.vacation_end), "2030-07-14")
 
+    def test_admin_can_confirm_free_event_and_users_see_zero_prices(self):
+        path = reverse("make_event_free", args=[self.event.pk])
+        self.assertEqual(self.client.get(path).status_code, 302)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(path).status_code, 403)
+        self.assertEqual(self.client.post(path).status_code, 403)
+        self.assertNotContains(self.client.get("/orders/"), path)
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.order.refresh_from_db()
+        stale_version = self.order.version
+        self.assertContains(self.client.get("/orders/"), path)
+        self.assertContains(self.client.get(path), "Termin kostenlos stellen?")
+        self.assertFalse(Event.objects.get(pk=self.event.pk).is_free)
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        self.assertEqual(csrf_client.post(path).status_code, 403)
+        self.assertRedirects(self.client.post(path), f"/orders/?event={self.event.pk}")
+        self.assertTrue(Event.objects.get(pk=self.event.pk).is_free)
+        self.client.force_login(self.other)
+        overview = self.client.get("/orders/")
+        self.assertContains(overview, "Kostenlos")
+        self.assertNotContains(overview, path)
+        detail = self.client.get("/orders/", {"event": self.event.pk})
+        self.assertContains(detail, "Kostenlos")
+        self.assertEqual(detail.context["grand_total"], 0)
+        self.client.force_login(self.user)
+        dashboard = self.client.get("/")
+        self.assertContains(dashboard, "Dieser Termin ist kostenlos")
+        self.assertContains(dashboard, 'data-price="0"')
+        self.assertNotContains(dashboard, 'data-price="160"')
+        self.assertEqual(dashboard.context["upcoming"][0]["display_total"], 0)
+        self.assertEqual(dashboard.context["upcoming"][0]["rows"][0]["price_cents"], 0)
+        edit_path = reverse("edit_order", args=[self.order.pk])
+        response = self.client.post(edit_path, {
+            f"order-{self.order.pk}-version": stale_version,
+            f"order-{self.order.pk}-product_{self.product.pk}": 3,
+        })
+        self.assertContains(response, "inzwischen geaendert")
+        self.assertContains(response, 'data-price="0"')
+        self.assertEqual(Order.objects.get(pk=self.order.pk).items.get().quantity, 2)
+        self.assertRedirects(self.client.post(path), f"/orders/?event={self.event.pk}")
+        self.assertEqual(self.user.ledger.count(), 2)
+
+    def test_free_event_action_excludes_today_past_and_closed_events(self):
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        self.client.force_login(self.user)
+        for changes in (
+            {"date": timezone.localdate()},
+            {"date": timezone.localdate() - timedelta(days=1)},
+            {"deadline": timezone.now() - timedelta(seconds=1)},
+            {"status": Event.Status.LOCKED},
+            {"status": Event.Status.CANCELLED},
+            {"status": Event.Status.SETTLED},
+        ):
+            with self.subTest(changes=changes):
+                Event.objects.filter(pk=self.event.pk).update(**changes)
+                path = reverse("make_event_free", args=[self.event.pk])
+                self.assertNotContains(self.client.get("/orders/"), path)
+                self.assertNotContains(
+                    self.client.get("/orders/", {"event": self.event.pk}), path
+                )
+                self.assertRedirects(self.client.get(path), f"/orders/?event={self.event.pk}")
+                self.assertRedirects(self.client.post(path), f"/orders/?event={self.event.pk}")
+                self.assertFalse(Event.objects.get(pk=self.event.pk).is_free)
+                Event.objects.filter(pk=self.event.pk).update(
+                    date=self.event.date, deadline=self.event.deadline, status=Event.Status.OPEN
+                )
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        self.assertNotEqual(self.client.post(path).status_code, 200)
+        self.assertFalse(Event.objects.get(pk=self.event.pk).is_free)
+
     def test_orders_overview_sums_products_across_participants(self):
         self.client.force_login(self.user)
         other_order = Order.objects.create(user=self.other, event=self.event)

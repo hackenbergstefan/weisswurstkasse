@@ -24,7 +24,7 @@
                             data-lucide="arrow-up-right" aria-hidden="true"></i></a><small
                         class="block muted">{{ summary.event.get_event_type_display }}{% if summary.event.status == 'CANCELLED' %}
                         &middot;
-                        abgesagt{% endif %}</small></td>
+                        abgesagt{% endif %}{% if summary.event.is_free %} &middot; Kostenlos{% endif %}</small></td>
                 <td>
                     <a class="order-description quiet-link"
                         href="{% url 'orders' %}?event={{ summary.event.pk }}">{% for item in summary.items %}<span><strong>{{ item.quantity }}</strong>

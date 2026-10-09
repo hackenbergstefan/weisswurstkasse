@@ -159,13 +159,25 @@ def order_context(order, actor):
     products = list(Product.objects.filter(active=True, event_type=order.event.event_type))
     quantities = {item.product_id: item.quantity for item in order.items.all()}
     form = QuantitiesForm(
-        products=products, quantities=quantities, version=order.version, prefix=f"order-{order.pk}"
+        products=products,
+        quantities=quantities,
+        version=order.version,
+        prefix=f"order-{order.pk}",
+        is_free=order.event.is_free,
     )
-    rows = [{"product": product, "field": form[f"product_{product.pk}"]} for product in products]
+    rows = [
+        {
+            "product": product,
+            "field": form[f"product_{product.pk}"],
+            "price_cents": 0 if order.event.is_free else product.price_cents,
+        }
+        for product in products
+    ]
     inactive = [item for item in order.items.all() if not item.product.active]
     fixed_total = sum(item.quantity * item.unit_price_cents for item in inactive)
     editable_total = fixed_total + sum(
-        product.price_cents * quantities.get(product.pk, 0) for product in products
+        (0 if order.event.is_free else product.price_cents) * quantities.get(product.pk, 0)
+        for product in products
     )
     return {
         "order": order,
@@ -208,6 +220,7 @@ def edit_order(request, order_id):
             request.POST,
             products=Product.objects.filter(active=True, event_type=order.event.event_type),
             prefix=f"order-{order.pk}",
+            is_free=order.event.is_free,
         )
         if form.is_valid() and form.cleaned_data["version"] is not None:
             try:
@@ -227,7 +240,11 @@ def edit_order(request, order_id):
             form.add_error(None, "Bitte Eingaben pruefen und die Seite bei Bedarf neu laden.")
         context["form"] = form
         context["rows"] = [
-            {"product": product, "field": form[f"product_{product.pk}"]}
+            {
+                "product": product,
+                "field": form[f"product_{product.pk}"],
+                "price_cents": 0 if order.event.is_free else product.price_cents,
+            }
             for product in form.products
         ]
     return render(request, "weisswurstrunde/edit_order.html", context)
@@ -385,6 +402,26 @@ def order_history(request):
     return render(
         request, "weisswurstrunde/order_history.html", {"events": page, "summaries": summaries}
     )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def make_event_free(request, event_id):
+    if not request.user.is_active or not request.user.is_admin:
+        raise PermissionDenied
+    event = get_object_or_404(Event, pk=event_id)
+    if request.method == "POST":
+        try:
+            services.make_event_free(event.pk, request.user)
+        except ValidationError as error:
+            messages.error(request, error_message(error))
+        else:
+            messages.success(request, "Dieser Termin ist jetzt fuer alle kostenlos.")
+        return redirect(f"{reverse('orders')}?event={event.pk}")
+    if not event.can_make_free:
+        messages.error(request, "Dieser Termin kann nicht kostenlos gestellt werden.")
+        return redirect(f"{reverse('orders')}?event={event.pk}")
+    return render(request, "weisswurstrunde/free_event.html", {"event": event})
 
 
 @login_required

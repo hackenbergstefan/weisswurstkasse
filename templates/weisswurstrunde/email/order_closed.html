@@ -66,7 +66,7 @@
                                 <tr>
                                     <td colspan="2"
                                         style="padding: 13px 16px; background-color: #e5edf0; color: #103b53; font-size: 14px; font-weight: 700;">
-                                        Deine Bestellung</td>
+                                        Deine Bestellung{% if event.is_free %} &middot; Kostenlos{% endif %}</td>
                                 </tr>
                                 {% for item in order.items.all %}<tr>
                                     <td

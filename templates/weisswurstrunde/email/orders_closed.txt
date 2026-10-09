@@ -1,6 +1,8 @@
 {% load money %}Gesamtbestellung: {{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }}
 
 Gesamtmenge:
+{% if event.is_free %}Dieser Termin ist kostenlos.
+{% endif %}
 {{ participant_count }} Teilnehmer mit Bestellung
 {% for total in product_totals %}- {{ total.quantity }} {{ total.name }}
 {% empty %}- Keine Produkte bestellt

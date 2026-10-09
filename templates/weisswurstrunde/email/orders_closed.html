@@ -67,6 +67,7 @@
                                 <strong>{{ event.get_event_type_display }} am
                                     {{ event.date|date:"d.m.Y" }}</strong><br><span
                                     style="color: #60777c;">{{ orders|length }} Teilnehmer</span>
+                                {% if event.is_free %}<br><strong>Dieser Termin ist kostenlos.</strong>{% endif %}
                             </p>
                         </td>
                     </tr>

@@ -3,6 +3,8 @@
 der Bestellschluss fuer {{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }} ist erreicht.
 
 Deine Bestellung:
+{% if event.is_free %}Dieser Termin ist kostenlos.
+{% endif %}
 {% for item in order.items.all %}- {{ item.quantity }} x {{ item.product.name }} zu {{ item.unit_price_cents|euros }}
 {% empty %}- Keine Bestellung
 {% endfor %}
