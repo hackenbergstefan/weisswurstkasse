@@ -321,9 +321,13 @@ def orders(request):
     )
     totals = {}
     grand_total = 0
+    participant_count = 0
     for order in event_orders:
+        items = order.items.all()
+        if items:
+            participant_count += 1
         grand_total += order.total
-        for item in order.items.all():
+        for item in items:
             totals[item.product.name] = totals.get(item.product.name, 0) + item.quantity
     return render(
         request,
@@ -334,6 +338,7 @@ def orders(request):
             "orders": event_orders,
             "totals": totals,
             "grand_total": grand_total,
+            "participant_count": participant_count,
             "can_edit": event.can_edit(request.user),
             "add_order_form": (
                 AddOrderForm(event=event)

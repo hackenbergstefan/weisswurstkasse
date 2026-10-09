@@ -282,7 +282,9 @@ class ViewTests(TestCase):
         detail = self.client.get("/orders/", {"event": self.event.pk, "count": 20})
         self.assertEqual(detail.context["totals"], {self.product.name: 5})
         self.assertEqual(detail.context["grand_total"], 800)
+        self.assertEqual(detail.context["participant_count"], 2)
         self.assertContains(detail, "<th>Teilnehmer</th>")
+        self.assertContains(detail, "Teilnehmer mit Bestellung")
         self.assertEqual(detail.content.count(b'src="/static/weisswurst-neu.png"'), 1)
         self.assertContains(detail, "?count=20")
 

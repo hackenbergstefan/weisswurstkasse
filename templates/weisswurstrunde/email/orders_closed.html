@@ -76,22 +76,38 @@
                                 style="background-color: #ffd15b;">
                                 <tr>
                                     <td style="padding: 16px 18px; color: #103b53;">
-                                        <p
-                                            style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">
-                                            Gesamtmenge</p>
-                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                                            {% for total in product_totals %}{% product_image_url total.name as image_url %}
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0"
+                                            border="0">
                                             <tr>
-                                                <td valign="middle" style="padding: 6px 12px 6px 0;">
-                                                    {% if image_url %}<img src="{{ image_url }}" alt="" width="48"
-                                                        height="48"
-                                                        style="display: block; width: 48px; height: 48px; border: 0;">{% endif %}
+                                                <td valign="top">
+                                                    <p
+                                                        style="margin: 0 0 8px; color: #103b53; font-size: 12px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">
+                                                        Gesamtmenge</p>
+                                                    <table role="presentation" cellspacing="0" cellpadding="0"
+                                                        border="0">
+                                                        {% for total in product_totals %}{% product_image_url total.name as image_url %}
+                                                        <tr>
+                                                            <td valign="middle" style="padding: 6px 12px 6px 0;">
+                                                                {% if image_url %}<img src="{{ image_url }}" alt=""
+                                                                    width="48" height="48"
+                                                                    style="display: block; width: 48px; height: 48px; border: 0;">{% endif %}
+                                                            </td>
+                                                            <td valign="middle"
+                                                                style="color: #103b53; font-size: 16px; line-height: 1.35;">
+                                                                <strong><span
+                                                                        style="font-size: 24px; line-height: 1;">{{ total.quantity }}</span>
+                                                                    {{ total.name }}</strong>
+                                                            </td>
+                                                        </tr>{% endfor %}
+                                                    </table>
                                                 </td>
-                                                <td valign="middle"
-                                                    style="color: #103b53; font-size: 16px; line-height: 1.35;">
-                                                    <strong>{{ total.quantity }} {{ total.name }}</strong>
+                                                <td align="right" valign="bottom"
+                                                    style="color: #103b53; font-size: 15px; line-height: 1.2;">
+                                                    <strong
+                                                        style="font-size: 28px; line-height: 1;">{{ participant_count }}</strong><br>
+                                                    <span style="font-size: 12px;">Teilnehmer mit Bestellung</span>
                                                 </td>
-                                            </tr>{% endfor %}
+                                            </tr>
                                         </table>
                                     </td>
                                 </tr>

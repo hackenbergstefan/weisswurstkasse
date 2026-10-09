@@ -129,8 +129,19 @@ class AccountingTests(TestCase):
         self.assertIn("Kontostand zum Termin: -3,20 €", participant_message.body)
         self.assertIn("Stefan", admin_message.body)
         self.assertIn("2 x Weisswurst", admin_message.body)
+        self.assertNotIn("Thomas", admin_message.body)
         self.assertIn("Gesamtmenge", admin_message.alternatives[0][0])
-        self.assertIn("2 Weisswurst", admin_message.alternatives[0][0])
+        self.assertIn(
+            '<strong style="font-size: 28px; line-height: 1;">1</strong>',
+            admin_message.alternatives[0][0],
+        )
+        self.assertIn("Teilnehmer mit Bestellung", admin_message.alternatives[0][0])
+        self.assertIn(
+            "font-size: 24px;",
+            admin_message.alternatives[0][0],
+        )
+        self.assertIn(">2</span>", admin_message.alternatives[0][0])
+        self.assertIn("Weisswurst</strong>", admin_message.alternatives[0][0])
         self.assertIn("weisswurst-logo.png", participant_message.alternatives[0][0])
         self.assertIn("weisswurst-logo.png", admin_message.alternatives[0][0])
         self.assertIn("weisswurst-neu.png", participant_message.alternatives[0][0])

@@ -343,9 +343,11 @@ def send_order_close_emails(event_id):
                     item.product_id, {"name": item.product.name, "quantity": 0}
                 )
                 total["quantity"] += item.quantity
+        orders_with_items = [order for order in orders if order.items.all()]
         context = {
             "event": event,
-            "orders": orders,
+            "orders": orders_with_items,
+            "participant_count": len(orders_with_items),
             "product_totals": product_totals.values(),
             "logo_url": logo_url,
         }
@@ -386,9 +388,11 @@ def send_order_changed_email(order_id, old_total, order_delta):
                 item.product_id, {"name": item.product.name, "quantity": 0}
             )
             total["quantity"] += item.quantity
+    orders_with_items = [current_order for current_order in orders if current_order.items.all()]
     context = {
         "event": event,
-        "orders": orders,
+        "orders": orders_with_items,
+        "participant_count": len(orders_with_items),
         "product_totals": product_totals.values(),
         "logo_url": f"{settings.PUBLIC_BASE_URL}{static('weisswurst-logo.png')}",
         "change": {
