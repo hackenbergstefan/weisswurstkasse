@@ -33,6 +33,10 @@ Run `uv run python manage.py worker` in another terminal with the same environme
 for automatic event generation and PayPal reconciliation. The worker runs every
 15 minutes; `worker --once` performs one cycle.
 
+Users can opt in to an email reminder two hours before the order deadline in
+**Mein Profil**. The worker checks every 15 minutes, so the reminder is sent in
+the first cycle after that point while the deadline is still ahead.
+
 ## Design
 
 The application uses a single **Die Dein Stammtisch** design: blue and yellow,
@@ -127,8 +131,8 @@ PostgreSQL operational testing are separate operator tasks.
 
 At the order deadline, every participant receives their final order and balance
 for the event date. Active admins receive the complete order list. Configure a
-working SMTP server before operating the worker; it sends these notifications
-after the event status has been changed to `LOCKED`.
+working SMTP server before operating the worker; it sends opt-in reminders and
+the final notifications after the event status has been changed to `LOCKED`.
 
 Weisswurst and Leberkaese have separate weekly schedules and product selections.
 Leberkaese starts with only Leberkassemmel at EUR 2.00; `seed_products` adds the

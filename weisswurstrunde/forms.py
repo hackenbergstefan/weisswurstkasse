@@ -100,6 +100,13 @@ class VacationForm(forms.ModelForm):
         }
 
 
+class OrderReminderForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["order_reminders"]
+        labels = {"order_reminders": "Erinnerung zwei Stunden vor Bestellschluss erhalten"}
+
+
 class AddOrderForm(forms.Form):
     participant = forms.ModelChoiceField(
         queryset=User.objects.filter(is_active=True),

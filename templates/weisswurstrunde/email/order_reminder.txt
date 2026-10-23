@@ -1,0 +1,12 @@
+{% load money %}
+Hallo {{ user.name }},
+
+in etwa zwei Stunden ist Bestellschluss fuer {{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }} um {{ event.deadline|date:"H:i" }} Uhr.
+
+Deine aktuelle Bestellung:
+{% if order %}{% for item in order.items.all %}- {{ item.quantity }} x {{ item.product.name }} zu {{ item.unit_price_cents|euros }}
+{% empty %}- Keine Bestellung
+{% endfor %}Gesamt: {{ order.total|euros }}{% else %}- Du hast noch keine Bestellung.{% endif %}
+
+Du kannst deine Bestellung bis dahin noch pruefen und aendern:
+{{ dashboard_url }}

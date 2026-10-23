@@ -13,6 +13,7 @@ from weisswurstrunde.models import (
     EventType,
     LedgerEntry,
     Order,
+    OrderReminder,
     Payout,
     Product,
     User,
@@ -28,6 +29,7 @@ from weisswurstrunde.services import (
     save_defaults,
     save_order,
     send_order_close_emails,
+    send_order_reminders,
 )
 
 
@@ -300,6 +302,43 @@ class AccountingTests(TestCase):
         self.assertIn(f"'user_email': '{self.user.email}'", deadline_record)
         self.assertIn("'quantity': 2", deadline_record)
         self.assertIn("'total_cents': 320", deadline_record)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_order_reminders_are_opt_in_and_sent_once_within_two_hours(self):
+        now = timezone.now()
+        self.user.order_reminders = True
+        self.user.save(update_fields=["order_reminders"])
+        self.event.deadline = now + timedelta(hours=2)
+        self.event.save(update_fields=["deadline"])
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+
+        too_early = Event.objects.create(
+            event_type=EventType.LEBERKAESE,
+            date=self.event.date,
+            deadline=now + timedelta(hours=2, minutes=1),
+        )
+        already_closed = Event.objects.create(
+            date=self.event.date + timedelta(days=1),
+            deadline=now - timedelta(minutes=1),
+        )
+        for event in (too_early, already_closed):
+            Order.objects.create(user=self.user, event=event)
+
+        self.assertEqual(send_order_reminders(now), 1)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.user.email])
+        self.assertIn("in etwa zwei Stunden", mail.outbox[0].body)
+        self.assertIn("2 x Weisswurst", mail.outbox[0].body)
+        self.assertIn("3,20", mail.outbox[0].body)
+        self.assertIn("Bestellschluss", mail.outbox[0].subject)
+        self.assertEqual(len(mail.outbox[0].alternatives), 1)
+        self.assertEqual(mail.outbox[0].alternatives[0][1], "text/html")
+        self.assertIn("2 x Weisswurst", mail.outbox[0].alternatives[0][0])
+        self.assertIn("3,20", mail.outbox[0].alternatives[0][0])
+        self.assertEqual(OrderReminder.objects.count(), 1)
+
+        self.assertEqual(send_order_reminders(now), 0)
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_admin_can_correct_closed_orders_with_audited_charges(self):
         admin = User.objects.create_user(

@@ -1,0 +1,89 @@
+{% load money %}
+<!doctype html>
+<html lang="de">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Erinnerung an deine Bestellung</title>
+</head>
+
+<body style="margin: 0; padding: 24px 12px; background-color: #f6f7f1; color: #103b53; font-family: Trebuchet MS, Arial, sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0"
+                    style="width: 100%; max-width: 600px; background-color: #ffffff; border: 1px solid #dbe3df;">
+                    <tr>
+                        <td style="padding: 20px 32px; background-color: #06568a; border-bottom: 4px solid #ffd15b; color: #ffffff;">
+                            <strong style="font-size: 24px;">Dein Stammtisch</strong>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 24px 32px 0;">
+                            <img src="{{ logo_url }}" alt="Dein Stammtisch" width="240"
+                                style="display: block; width: 240px; max-width: 100%; height: auto; border: 0;">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 28px 32px 16px;">
+                            <p style="margin: 0 0 8px; color: #60777c; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;">
+                                Bestellschluss in etwa zwei Stunden</p>
+                            <h1 style="margin: 0 0 12px; font-size: 26px; line-height: 1.2;">
+                                Hallo {{ user.name }}!</h1>
+                            <p style="margin: 0; font-size: 16px; line-height: 1.6;">
+                                Fuer <strong>{{ event.get_event_type_display }} am {{ event.date|date:"d.m.Y" }}</strong>
+                                kannst du noch bis {{ event.deadline|date:"H:i" }} Uhr bestellen oder deine Bestellung aendern.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 32px 24px;">
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                                style="border-collapse: collapse; border: 1px solid #dbe3df;">
+                                <tr>
+                                    <th align="left" style="padding: 12px 14px; background-color: #e5edf0;">Deine aktuelle Bestellung</th>
+                                    <th align="right" style="padding: 12px 14px; background-color: #e5edf0;">Einzelpreis</th>
+                                </tr>
+                                {% if order %}{% for item in order.items.all %}
+                                <tr>
+                                    <td style="padding: 12px 14px; border-top: 1px solid #dbe3df;">
+                                        {{ item.quantity }} x {{ item.product.name }}</td>
+                                    <td align="right" style="padding: 12px 14px; border-top: 1px solid #dbe3df; white-space: nowrap;">
+                                        {{ item.unit_price_cents|euros }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="2" style="padding: 12px 14px; border-top: 1px solid #dbe3df;">
+                                        Keine Bestellung</td>
+                                </tr>
+                                {% endfor %}
+                                <tr>
+                                    <td style="padding: 12px 14px; border-top: 2px solid #06568a; font-weight: 700;">Gesamt</td>
+                                    <td align="right" style="padding: 12px 14px; border-top: 2px solid #06568a; font-weight: 700; white-space: nowrap;">
+                                        {{ order.total|euros }}</td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="2" style="padding: 12px 14px; border-top: 1px solid #dbe3df;">
+                                        Du hast noch keine Bestellung.</td>
+                                </tr>
+                                {% endif %}
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding: 0 32px 32px;">
+                            <a href="{{ dashboard_url }}"
+                                style="display: inline-block; padding: 13px 20px; background-color: #06568a; color: #ffffff; font-weight: 700; text-decoration: none;">
+                                Bestellung pruefen oder aendern
+                            </a>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

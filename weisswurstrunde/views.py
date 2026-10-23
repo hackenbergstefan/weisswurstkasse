@@ -30,6 +30,7 @@ from .forms import (
     CorrectionForm,
     LoginForm,
     ManualPaymentForm,
+    OrderReminderForm,
     PayoutForm,
     PayPalForm,
     ProductForm,
@@ -473,6 +474,7 @@ def profile(request):
     profile_form = ProfileForm(instance=request.user, prefix="profile")
     password_form = PasswordChangeForm(request.user, prefix="password")
     vacation_form = VacationForm(instance=request.user, prefix="vacation")
+    reminder_form = OrderReminderForm(instance=request.user, prefix="reminder")
     products = Product.objects.filter(active=True)
     defaults_form = QuantitiesForm(
         products=products,
@@ -514,6 +516,20 @@ def profile(request):
                 )
                 messages.success(request, "Urlaubszeitraum gespeichert.")
                 return redirect("profile")
+        elif action == "reminder":
+            reminder_form = OrderReminderForm(
+                request.POST, instance=request.user, prefix="reminder"
+            )
+            if reminder_form.is_valid():
+                reminder_form.save()
+                record(
+                    "order_reminders_edited",
+                    request.user,
+                    user_id=request.user.pk,
+                    enabled=request.user.order_reminders,
+                )
+                messages.success(request, "Erinnerungseinstellung gespeichert.")
+                return redirect("profile")
         elif action == "defaults":
             defaults_form = QuantitiesForm(
                 request.POST, products=products, prefix="defaults", show_event_type=True
@@ -532,6 +548,7 @@ def profile(request):
             "profile_form": profile_form,
             "password_form": password_form,
             "vacation_form": vacation_form,
+            "reminder_form": reminder_form,
             "defaults_form": defaults_form,
         },
     )

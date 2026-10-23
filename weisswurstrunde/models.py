@@ -24,6 +24,7 @@ class User(AbstractBaseUser):
     paypal_email = models.EmailField()
     vacation_start = models.DateField(null=True, blank=True)
     vacation_end = models.DateField(null=True, blank=True)
+    order_reminders = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_admin = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
@@ -121,6 +122,17 @@ class Event(models.Model):
     @property
     def can_make_free(self):
         return not self.is_free and self.date > timezone.localdate() and self.editable
+
+
+class OrderReminder(models.Model):
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="reminders")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="order_reminders_sent")
+    sent_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["event", "user"], name="one_order_reminder_per_user")
+        ]
 
 
 class Order(models.Model):

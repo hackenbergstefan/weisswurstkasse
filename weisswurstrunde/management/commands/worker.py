@@ -9,12 +9,13 @@ from django.utils import timezone
 
 from weisswurstrunde.models import LoginAttempt
 from weisswurstrunde.paypal import mailbox_enabled
+from weisswurstrunde.services import send_order_reminders
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Generate events and reconcile PayPal mail every 15 minutes. Run exactly one worker."
+    help = "Generate events, send order reminders, and reconcile PayPal mail every 15 minutes. Run exactly one worker."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")
@@ -24,6 +25,7 @@ class Command(BaseCommand):
             close_old_connections()
             try:
                 call_command("generate_events")
+                send_order_reminders()
                 call_command("reconcile", paypal=mailbox_enabled())
                 LoginAttempt.objects.filter(
                     window_start__lt=timezone.now() - timedelta(days=1)

@@ -215,6 +215,21 @@ class ViewTests(TestCase):
 
     def test_profile_and_defaults_only_change_current_user(self):
         self.client.force_login(self.user)
+        self.assertContains(self.client.get("/profile/"), "Erinnerung zwei Stunden vor Bestellschluss")
+        response = self.client.post(
+            "/profile/",
+            {"action": "reminder", "reminder-order_reminders": "on"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.other.refresh_from_db()
+        self.assertTrue(self.user.order_reminders)
+        self.assertFalse(self.other.order_reminders)
+        response = self.client.post("/profile/", {"action": "reminder"})
+        self.assertEqual(response.status_code, 302)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.order_reminders)
+
         response = self.client.post(
             "/profile/",
             {

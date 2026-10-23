@@ -8,6 +8,7 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.template.loader import render_to_string
 from django.templatetags.static import static
+from django.urls import reverse
 from django.utils import timezone
 
 from .audit import record
@@ -18,6 +19,7 @@ from .models import (
     LedgerEntry,
     Order,
     OrderItem,
+    OrderReminder,
     Payout,
     Product,
     User,
@@ -405,6 +407,56 @@ def send_order_close_emails(event_id):
             render_to_string("weisswurstrunde/email/orders_closed.html", context), "text/html"
         )
         message.send()
+
+
+def send_order_reminders(now=None):
+    now = now or timezone.now()
+    events = Event.objects.filter(
+        status=Event.Status.OPEN,
+        deadline__gt=now,
+        deadline__lte=now + timedelta(hours=2),
+    ).order_by("deadline")
+    users = list(User.objects.filter(is_active=True, order_reminders=True))
+    sent = set(
+        OrderReminder.objects.filter(event__in=events).values_list("event_id", "user_id")
+    )
+    sent_count = 0
+
+    for event in events:
+        for user in users:
+            if (event.pk, user.pk) in sent:
+                continue
+            order = (
+                Order.objects.filter(event=event, user=user)
+                .prefetch_related("items__product")
+                .first()
+            )
+            context = {
+                "user": user,
+                "event": event,
+                "order": order,
+                "dashboard_url": f"{settings.PUBLIC_BASE_URL}{reverse('dashboard')}",
+                "logo_url": f"{settings.PUBLIC_BASE_URL}{static('weisswurst-logo.png')}",
+            }
+            message = EmailMultiAlternatives(
+                subject=(
+                    f"Erinnerung: Bestellschluss fuer {event.get_event_type_display()} "
+                    f"am {event.date:%d.%m.%Y}"
+                ),
+                body=render_to_string("weisswurstrunde/email/order_reminder.txt", context),
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[user.email],
+            )
+            message.attach_alternative(
+                render_to_string("weisswurstrunde/email/order_reminder.html", context),
+                "text/html",
+            )
+            if message.send() != 1:
+                raise RuntimeError(f"Could not send order reminder to user {user.pk}.")
+            OrderReminder.objects.create(event=event, user=user)
+            sent_count += 1
+
+    return sent_count
 
 
 def send_order_changed_email(order_id, old_total, order_delta):
