@@ -9,4 +9,4 @@ Deine Bestellung:
 {% empty %}- Keine Bestellung
 {% endfor %}
 Gesamt: {{ order.total|euros }}
-Kontostand zum Termin: {{ balance|euros }}
+Aktueller Kontostand: {{ balance|euros }}

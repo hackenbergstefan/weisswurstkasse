@@ -1,6 +1,8 @@
+import importlib
 import uuid
 from datetime import timedelta
 
+from django.apps import apps as django_apps
 from django.core import mail
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
@@ -19,6 +21,8 @@ from weisswurstrunde.models import (
     User,
 )
 from weisswurstrunde.services import (
+    cancel_event,
+    charge_due_orders,
     create_payout,
     generate_events,
     make_event_free,
@@ -71,12 +75,10 @@ class AccountingTests(TestCase):
         self.assertEqual(self.order.items.get().unit_price_cents, 0)
         self.assertEqual(self.order.version, stale_version + 1)
         self.assertEqual(empty_order.version, 1)
-        self.assertEqual(
-            list(self.user.ledger.values_list("amount_cents", flat=True)), [-320, 320]
-        )
+        self.assertFalse(self.user.ledger.exists())
         self.assertEqual(self.user.balance, 0)
         make_event_free(self.event.pk, self.user)
-        self.assertEqual(self.user.ledger.count(), 2)
+        self.assertFalse(self.user.ledger.exists())
         with self.assertRaises(ValidationError):
             save_order(self.order.pk, {self.product.pk: 2}, self.user, stale_version)
         self.product.active = True
@@ -144,11 +146,10 @@ class AccountingTests(TestCase):
                     date=self.event.date, deadline=self.event.deadline, status=Event.Status.OPEN
                 )
 
-    def test_balance_includes_orders_only_from_their_event_date(self):
+    def test_orders_are_charged_once_at_noon_on_their_event_day(self):
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
-        self.assertEqual(self.user.balance, 0)
+        self.assertFalse(self.user.ledger.exists())
         manual_payment(self.user, 2000, "CASH", "Deposit", uuid.uuid4())
-        self.assertEqual(self.user.balance, 2000)
         LedgerEntry.objects.create(
             user=self.user,
             amount_cents=500,
@@ -157,20 +158,141 @@ class AccountingTests(TestCase):
             created_at=timezone.now() + timedelta(days=2),
         )
         self.assertEqual(self.user.balance, 2000)
-        self.event.date = timezone.localdate()
+        self.assertEqual(reconcile(), [])
+        noon = self.event.charge_at
+        self.assertEqual(timezone.localtime(noon).hour, 12)
+        self.assertEqual(timezone.localtime(noon).date(), self.event.date)
+        self.assertEqual(charge_due_orders(noon - timedelta(seconds=1)), 0)
+        self.assertFalse(self.order.charges.exists())
+
+        self.event.date = timezone.localdate() - timedelta(days=1)
         self.event.save()
-        self.assertEqual(self.user.balance, 1680)
-        self.event.date -= timedelta(days=1)
-        self.event.save()
-        self.assertEqual(self.user.balance, 1680)
-        self.event.date = timezone.localdate() + timedelta(days=1)
-        self.event.save()
-        save_order(self.order.pk, {self.product.pk: 0}, self.user)
+        self.order.refresh_from_db()
         self.assertEqual(self.user.balance, 2000)
+        self.assertEqual(charge_due_orders(), 1)
+        self.assertEqual(charge_due_orders(), 0)
+        charge = self.order.charges.get()
+        self.assertEqual((charge.amount_cents, charge.created_at), (-320, self.order.event.charge_at))
+        self.assertEqual(self.user.balance, 1680)
+        self.assertEqual(reconcile(), [])
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+        save_order(self.order.pk, {self.product.pk: 1}, self.user)
+        correction = self.order.charges.exclude(pk=charge.pk).get()
+        self.assertEqual(correction.amount_cents, 160)
+        self.assertGreater(correction.created_at, charge.created_at)
+        self.assertEqual(self.user.balance, 1840)
         self.assertEqual(reconcile(), [])
 
+    def test_late_edit_books_pending_charge_before_correction(self):
+        save_order(self.order.pk, {self.product.pk: 2}, self.user)
+        self.event.date = timezone.localdate() - timedelta(days=1)
+        self.event.save()
+        self.user.is_admin = True
+        self.user.save(update_fields=["is_admin"])
+
+        save_order(self.order.pk, {self.product.pk: 3}, self.user)
+
+        charges = list(self.order.charges.order_by("created_at"))
+        self.assertEqual([entry.amount_cents for entry in charges], [-320, -160])
+        self.assertEqual(charges[0].created_at, self.event.charge_at)
+        self.assertEqual(charge_due_orders(), 0)
+        self.assertEqual(self.user.balance, -480)
+        self.assertEqual(reconcile(), [])
+
+        cancel_event(self.event.pk, self.user)
+        self.assertEqual(self.user.balance, 0)
+        self.assertEqual(reconcile(), [])
+
+    def test_migration_neutralizes_prebooked_future_orders(self):
+        past_event = Event.objects.create(
+            date=timezone.localdate() - timedelta(days=7),
+            deadline=timezone.now() - timedelta(days=8),
+            status=Event.Status.SETTLED,
+        )
+        past_order = Order.objects.create(user=self.user, event=past_event)
+        for reference, order, amount in [
+            ("legacy-future-1", self.order, -600),
+            ("legacy-future-2", self.order, 100),
+            ("legacy-past", past_order, -400),
+        ]:
+            LedgerEntry.objects.create(
+                user=self.user,
+                amount_cents=amount,
+                kind=LedgerEntry.Kind.ORDER,
+                order=order,
+                reference=reference,
+                created_at=timezone.now() - timedelta(days=20),
+            )
+        migration = importlib.import_module(
+            "weisswurstrunde.migrations.0010_neutralize_prebooked_orders"
+        )
+
+        with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
+            migration.neutralize_prebooked_orders(django_apps, None)
+        migration.neutralize_prebooked_orders(django_apps, None)
+
+        self.assertIn("order_prebooking_reversed", " ".join(logs.output))
+        reversal = self.order.charges.get(reference=f"order-prebooking-reversal:{self.order.pk}")
+        self.assertEqual(reversal.amount_cents, 500)
+        self.assertEqual(sum(self.order.charges.values_list("amount_cents", flat=True)), 0)
+        self.assertEqual(past_order.charges.count(), 1)
+        self.assertEqual(self.user.balance, -400)
+
+    def test_migration_consolidates_order_entries_into_noon_charges(self):
+        past_event = Event.objects.create(
+            date=timezone.localdate() - timedelta(days=7),
+            deadline=timezone.now() - timedelta(days=8),
+            status=Event.Status.SETTLED,
+        )
+        cancelled_event = Event.objects.create(
+            date=timezone.localdate() - timedelta(days=6),
+            deadline=timezone.now() - timedelta(days=7),
+            status=Event.Status.CANCELLED,
+        )
+        past_order = Order.objects.create(user=self.user, event=past_event)
+        cancelled_order = Order.objects.create(user=self.user, event=cancelled_event)
+        noon = past_event.charge_at
+        payment = manual_payment(self.user, 2000, "CASH", "Deposit", uuid.uuid4())
+        for reference, order, amount, created_at in [
+            ("order:past:1", past_order, -600, noon - timedelta(days=30)),
+            ("order:past:2", past_order, 100, noon - timedelta(hours=2)),
+            ("order:past:3", past_order, -100, noon + timedelta(days=1)),
+            ("order:cancelled:1", cancelled_order, -600, noon - timedelta(days=30)),
+            ("event-cancel:cancelled", cancelled_order, 600, noon - timedelta(days=3)),
+            ("order:future:1", self.order, -500, noon - timedelta(days=30)),
+            (f"order-prebooking-reversal:{self.order.pk}", self.order, 500, timezone.now()),
+        ]:
+            LedgerEntry.objects.create(
+                user=self.user,
+                amount_cents=amount,
+                kind=LedgerEntry.Kind.ORDER,
+                order=order,
+                reference=reference,
+                created_at=created_at,
+            )
+        balance = self.user.balance
+        migration = importlib.import_module(
+            "weisswurstrunde.migrations.0011_consolidate_order_charges"
+        )
+
+        with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
+            migration.consolidate_order_charges(django_apps, None)
+        with self.assertNoLogs("weisswurstrunde.audit", level="INFO"):
+            migration.consolidate_order_charges(django_apps, None)
+
+        self.assertIn("order:past:1", " ".join(logs.output))
+        self.assertEqual(
+            list(past_order.charges.order_by("created_at").values_list("reference", "amount_cents", "created_at")),
+            [(f"order-charge:{past_order.pk}", -500, noon), ("order:past:3", -100, noon + timedelta(days=1))],
+        )
+        self.assertFalse(cancelled_order.charges.exists())
+        self.assertFalse(self.order.charges.exists())
+        self.assertTrue(LedgerEntry.objects.filter(pk=payment.pk).exists())
+        self.assertEqual(self.user.balance, balance)
+
     def test_prices_snapshots_and_compensating_charges(self):
-        self.event.date = timezone.localdate()
+        self.event.date = timezone.localdate() - timedelta(days=1)
         self.event.save()
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
         self.assertEqual(self.user.balance, -320)
@@ -226,7 +348,7 @@ class AccountingTests(TestCase):
             if message.to == [admin.email] and "Stefan" in message.body
         )
         self.assertIn("2 x Weisswurst", participant_message.body)
-        self.assertIn("Kontostand zum Termin: -3,20 €", participant_message.body)
+        self.assertIn("Aktueller Kontostand: 0,00 €", participant_message.body)
         self.assertIn("Stefan", admin_message.body)
         self.assertIn("2 x Weisswurst", admin_message.body)
         self.assertNotIn("Thomas", admin_message.body)
@@ -459,6 +581,8 @@ class AccountingTests(TestCase):
         self.assertEqual(reconcile(), [])
 
     def test_reconciliation_detects_tampered_order(self):
+        self.event.date = timezone.localdate() - timedelta(days=1)
+        self.event.save()
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
         self.order.items.update(quantity=3)
         self.assertIn(f"Order {self.order.pk}", reconcile()[0])
@@ -481,7 +605,7 @@ class AccountingTests(TestCase):
             self.assertFalse(target.items.exists())
         save_order(order.pk, {product.pk: 2}, self.user)
         self.assertEqual(self.user.balance, 0)
-        self.assertEqual(order.charges.get().amount_cents, -400)
+        self.assertFalse(order.charges.exists())
         save_defaults(self.user, {self.product.pk: 3, product.pk: 1})
         generate_events()
         for generated in self.user.orders.exclude(pk__in=[order.pk, self.order.pk]):

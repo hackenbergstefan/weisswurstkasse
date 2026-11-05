@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Generate events, send order reminders, and reconcile PayPal mail every 15 minutes. Run exactly one worker."
+    help = "Generate events, charge due orders, send order reminders, and reconcile PayPal mail every 15 minutes. Run exactly one worker."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")

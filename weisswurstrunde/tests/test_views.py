@@ -17,7 +17,7 @@ from weisswurstrunde.models import (
     Product,
     User,
 )
-from weisswurstrunde.services import manual_payment, save_order
+from weisswurstrunde.services import charge_due_orders, manual_payment, save_order
 
 
 @override_settings(INVITATION_CODE="invite", ALLOWED_HOSTS=["testserver"])
@@ -187,8 +187,9 @@ class ViewTests(TestCase):
         for due, expected in [(False, 2000), (True, 1680)]:
             with self.subTest(due=due):
                 if due:
-                    self.event.date = timezone.localdate()
+                    self.event.date = timezone.localdate() - timedelta(days=1)
                     self.event.save()
+                    charge_due_orders()
                 for path in ["/", "/payments/", "/history/", f"/history/{self.user.pk}/"]:
                     response = self.client.get(path)
                     self.assertEqual(response.context["balance"], expected)
@@ -202,7 +203,7 @@ class ViewTests(TestCase):
                 self.assertEqual(entries[0].running_balance, expected)
 
     def test_history_hides_order_audit_metadata(self):
-        self.event.date = timezone.localdate()
+        self.event.date = timezone.localdate() - timedelta(days=1)
         self.event.save()
         save_order(self.order.pk, {self.product.pk: 2}, self.other)
         self.client.force_login(self.user)
@@ -321,7 +322,7 @@ class ViewTests(TestCase):
         self.assertContains(response, 'data-price="0"')
         self.assertEqual(Order.objects.get(pk=self.order.pk).items.get().quantity, 2)
         self.assertRedirects(self.client.post(path), f"/orders/?event={self.event.pk}")
-        self.assertEqual(self.user.ledger.count(), 2)
+        self.assertFalse(self.user.ledger.exists())
 
     def test_free_event_action_excludes_today_past_and_closed_events(self):
         self.user.is_admin = True
@@ -709,7 +710,8 @@ class ViewTests(TestCase):
         )
         self.assertEqual(self.client.post(path, data).status_code, 302)
         self.assertEqual(self.user.balance, 0)
-        self.assertEqual(self.order.charges.get().recorded_by, self.other)
+        self.assertEqual(self.order.total, 320)
+        self.assertFalse(self.order.charges.exists())
         self.event.refresh_from_db()
         self.assertEqual(self.event.status, Event.Status.LOCKED)
 

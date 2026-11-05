@@ -30,8 +30,8 @@ commands. `seed_products` is optional and adds **example prices**; review them i
 upcoming orders and cash balances. Their password is `demo`.
 
 Run `uv run python manage.py worker` in another terminal with the same environment
-for automatic event generation and PayPal reconciliation. The worker runs every
-15 minutes; `worker --once` performs one cycle.
+for automatic event generation, order charges at noon on the event day and PayPal
+reconciliation. The worker runs every 15 minutes; `worker --once` performs one cycle.
 
 Users can opt in to an email reminder two hours before the order deadline in
 **Mein Profil**. The worker checks every 15 minutes, so the reminder is sent in
@@ -129,8 +129,9 @@ hard-coded configuration. The ORM is portable to PostgreSQL; install
 `psycopg[binary]`, set `DATABASE_URL`, and migrate. Existing data migration and
 PostgreSQL operational testing are separate operator tasks.
 
-At the order deadline, every participant receives their final order and balance
-for the event date. Active admins receive the complete order list. Configure a
+At the order deadline, every participant receives their final order and current
+balance (the order itself is charged later, at noon on the event day). Active
+admins receive the complete order list. Configure a
 working SMTP server before operating the worker; it sends opt-in reminders and
 the final notifications after the event status has been changed to `LOCKED`.
 
@@ -144,25 +145,36 @@ fixed after creation so existing orders and defaults cannot change categories.
 ## Accounting rules
 
 - Monetary amounts are integer cents. Forms parse decimal strings without floats.
-- Saving an order records its cost in the ledger immediately. Future orders only
-  affect the account balance from their event date (Europe/Berlin by default).
-  Future-dated ledger entries are excluded until their booking date. Cash balance,
-  participant balances, account history and PayPal debt settlement use this same
-  cutoff. Later edits record only the difference; cancellations reverse the charge.
+- Orders create no ledger entries before their event. The worker charges each
+  order's total once, with a booking time of exactly 12:00 on the event day
+  (Europe/Berlin by default), on its first cycle at or after that time. Edits
+  after that time, such as admin corrections, record only the difference at the
+  actual time; an edit before the worker cycle first books the pending charge.
+  Deposits and payouts are booked at their actual time. Future-dated ledger
+  entries are excluded until their booking date. Cash balance, participant
+  balances, account history and PayPal debt settlement use this same cutoff.
+  Cancellations and free events refund only charges already booked.
+- Migrations `0010` and `0011` converted data from older versions, which booked
+  orders in advance and recorded every edit as a difference. As a one-time,
+  documented exception to ledger immutability, `0011` replaced all order entries
+  booked before noon on the event day with one charge per order at 12:00 on that
+  day (future orders: none). Net amounts and balances are unchanged; every removed
+  entry is listed in the audit log as `ledger_order_entries_consolidated`. Back up
+  the database before applying these migrations.
 - Saved item prices are snapshots. A product price change alone never reprices
   an order. Saving an editable order uses current prices for active products.
 - Regular participants can edit only `OPEN` events before their deadline.
   Active users with `is_admin=True` can also correct locked or settled orders
-  through the same order form, without reopening the event. The ledger records
-  the price difference and the acting admin. Stale edits are still rejected.
+  through the same order form, without reopening the event. After the noon charge,
+  the ledger records the price difference and the acting admin. Stale edits are still rejected.
   In a date's detail view, admins can also select a participant without an order
   and use **Bestellung hinzufuegen**, including after the deadline. New orders
-  start empty; quantities are entered explicitly and charged when saved.
+  start empty; quantities are entered explicitly and charged like other orders.
 - Admins can permanently mark a future open event as **Kostenlos** before its
   deadline using the gift action in **Alle Bestellungen**. This excludes today's,
   past, cancelled, locked and settled events. Confirmation is required. All
   existing order quantities are preserved and their saved prices become zero;
-  compensating ledger entries refund existing charges without changing historical
+  compensating ledger entries refund any charges already booked without changing historical
   ledger entries. Later orders and edits for this event remain free, including
   admin corrections after the deadline. Order versions advance to reject stale
   submissions. Participants see the free status and zero prices in their orders
@@ -189,7 +201,8 @@ uv run python manage.py reconcile
 uv run python manage.py reconcile --paypal
 ```
 
-Reconciliation compares order totals and recorded PayPal entries against their
+Reconciliation compares order totals (zero before an order's noon charge time) and
+recorded PayPal entries against their
 ledger entries. With `--paypal`, the configured IMAP mailbox is read and matching
 incoming payments and outgoing payouts are recorded idempotently. Reconciliation
 never rewrites historic entries.

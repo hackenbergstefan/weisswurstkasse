@@ -44,9 +44,13 @@ Audit logs contain actor emails and action details; they do not replace the ledg
 
 - Store money as integer cents; parse user amounts without floats.
 - The immutable ledger is authoritative. Do not add cached balances or rewrite
-  historic entries to make reconciliation pass.
-- Future orders affect balances only from their event date. Preserve the same
-  booking-date cutoff for balances, history, cash reporting, and debt settlement.
+  historic entries to make reconciliation pass. The only exception is the
+  one-time consolidation in migration `0011`; do not add further rewrites
+  without explicit approval.
+- Orders create no ledger entries before noon on their event day; the worker then
+  books each order total with `created_at` at exactly 12:00 local time, and later
+  edits book differences immediately. Preserve the same booking-date cutoff for
+  balances, history, cash reporting, and debt settlement.
 - Saved item prices are snapshots. Changing a product price does not itself
   reprice an existing order.
 - This is a shared application: authenticated users may edit other participants'

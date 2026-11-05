@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, time
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.core.exceptions import ValidationError
@@ -111,6 +112,10 @@ class Event(models.Model):
     @property
     def editable(self):
         return self.status == self.Status.OPEN and timezone.now() < self.deadline
+
+    @property
+    def charge_at(self):
+        return timezone.make_aware(datetime.combine(self.date, time(12)))
 
     def can_edit(self, user):
         return (

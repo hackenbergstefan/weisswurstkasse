@@ -5,7 +5,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Sum
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.urls import reverse
@@ -49,6 +49,9 @@ def save_order(order_id, quantities, actor, expected_version=None):
         raise ValidationError("Der Bestellschluss ist vorbei. Die Bestellung bleibt unveraendert.")
     if expected_version is not None and order.version != expected_version:
         raise ValidationError("Die Bestellung wurde inzwischen geaendert. Bitte neu laden.")
+    charged = timezone.now() >= order.event.charge_at
+    if charged:
+        charge_order(order)
     old_items = {item.product_id: item for item in order.items.all()}
     old_snapshot = {
         str(product_id): {
@@ -112,7 +115,7 @@ def save_order(order_id, quantities, actor, expected_version=None):
         if old_snapshot.get(product_id, {}).get("quantity", 0)
         != new_snapshot.get(product_id, {}).get("quantity", 0)
     ]
-    if delta:
+    if delta and charged:
         LedgerEntry.objects.create(
             user=order.user,
             amount_cents=delta,
@@ -217,21 +220,21 @@ def make_event_free(event_id, actor):
     event.save(update_fields=["is_free"])
     refunded_cents = 0
     for order in orders:
-        total = order.total
+        booked = booked_cents(order)
         order.items.update(unit_price_cents=0)
         order.version += 1
         order.save(update_fields=["version", "updated_at"])
-        if total:
+        if booked:
             LedgerEntry.objects.create(
                 user=order.user,
-                amount_cents=total,
+                amount_cents=-booked,
                 kind=LedgerEntry.Kind.ORDER,
                 order=order,
                 recorded_by=actor,
                 reference=f"event-free:{event.pk}:order:{order.pk}",
                 note=f"{event.get_event_type_display()} {event.date:%d.%m.%Y} kostenlos",
             )
-            refunded_cents += total
+            refunded_cents -= booked
     record(
         "event_made_free",
         actor,
@@ -256,15 +259,15 @@ def cancel_event(event_id, actor):
     list(User.objects.select_for_update().filter(pk__in=user_ids))
     orders = list(Order.objects.select_for_update().filter(event=event).prefetch_related("items"))
     for order in orders:
-        total = order.total
+        booked = booked_cents(order)
         if order.items.exists():
             order.items.all().delete()
             order.version += 1
             order.save(update_fields=["version", "updated_at"])
-        if total:
+        if booked:
             LedgerEntry.objects.create(
                 user=order.user,
-                amount_cents=total,
+                amount_cents=-booked,
                 kind=LedgerEntry.Kind.ORDER,
                 order=order,
                 recorded_by=actor,
@@ -315,15 +318,56 @@ def provision_order(user, event):
     return order
 
 
-def event_balance(user, event):
-    return (
-        user.ledger.filter(
-            Q(status="POSTED"),
-            Q(created_at__date__lte=event.date),
-            Q(order__isnull=True) | Q(order__event__date__lte=event.date),
-        ).aggregate(total=Sum("amount_cents"))["total"]
-        or 0
+def booked_cents(order):
+    return order.charges.aggregate(total=Sum("amount_cents"))["total"] or 0
+
+
+def charge_order(order, now=None):
+    """Book the order total at noon on the event day, once and only once that time is reached."""
+    event = order.event
+    reference = f"order-charge:{order.pk}"
+    if (now or timezone.now()) < event.charge_at or LedgerEntry.objects.filter(
+        reference=reference
+    ).exists():
+        return None
+    amount_cents = -order.total - booked_cents(order)
+    if not amount_cents:
+        return None
+    entry = LedgerEntry.objects.create(
+        user=order.user,
+        amount_cents=amount_cents,
+        kind=LedgerEntry.Kind.ORDER,
+        order=order,
+        reference=reference,
+        note=f"{event.get_event_type_display()} {event.date:%d.%m.%Y}",
+        created_at=event.charge_at,
     )
+    record(
+        "order_charged",
+        order_id=order.pk,
+        user_id=order.user_id,
+        event_id=event.pk,
+        amount_cents=amount_cents,
+    )
+    return entry
+
+
+def charge_due_orders(now=None):
+    now = now or timezone.now()
+    events = Event.objects.filter(date__lte=timezone.localdate(now)).exclude(
+        status__in=[Event.Status.SETTLED, Event.Status.CANCELLED]
+    )
+    charged = 0
+    for event in events:
+        if now < event.charge_at:
+            continue
+        for order_id, user_id in event.orders.values_list("pk", "user_id"):
+            with transaction.atomic():
+                User.objects.select_for_update().get(pk=user_id)
+                order = Order.objects.select_for_update().select_related("event").get(pk=order_id)
+                if charge_order(order, now):
+                    charged += 1
+    return charged
 
 
 def send_order_close_emails(event_id):
@@ -339,7 +383,7 @@ def send_order_close_emails(event_id):
         context = {
             "event": event,
             "order": order,
-            "balance": event_balance(order.user, event),
+            "balance": order.user.balance,
             "logo_url": logo_url,
         }
         message = EmailMultiAlternatives(
@@ -550,6 +594,7 @@ def generate_events(today=None):
     for event_id in closing_event_ids:
         record("event_locked", event_id=event_id)
         transaction.on_commit(lambda event_id=event_id: send_order_close_emails(event_id))
+    charge_due_orders()
     settling_event_ids = list(
         Event.objects.filter(date__lt=today)
         .exclude(status=Event.Status.SETTLED)
@@ -629,10 +674,12 @@ def reverse_manual(entry_id, actor, note):
 
 def reconcile():
     issues = []
-    for order in Order.objects.prefetch_related("items"):
-        booked = order.charges.aggregate(total=Sum("amount_cents"))["total"] or 0
-        if booked != -order.total:
-            issues.append(f"Order {order.pk}: ledger {booked}, expected {-order.total}")
+    now = timezone.now()
+    for order in Order.objects.select_related("event").prefetch_related("items"):
+        booked = booked_cents(order)
+        expected = -order.total if now >= order.event.charge_at else 0
+        if booked != expected:
+            issues.append(f"Order {order.pk}: ledger {booked}, expected {expected}")
     for user in User.objects.all():
         for payment in user.paypal_payments.all():
             expected = (
