@@ -623,40 +623,48 @@ def finance_overview(request):
     if not request.user.is_active or not request.user.is_admin:
         raise PermissionDenied
 
-    entries = (
-        LedgerEntry.objects.filter(LedgerEntry.balance_filter())
-        .select_related("user", "recorded_by", "order__event")
-        .order_by("-created_at", "-pk")
-    )
-    entry_totals = entries.aggregate(
-        income=Sum("amount_cents", filter=Q(amount_cents__gt=0)),
-        expenses=Sum("amount_cents", filter=Q(amount_cents__lt=0)),
+    entry_totals = LedgerEntry.objects.filter(LedgerEntry.balance_filter()).aggregate(
+        paypal=Sum("amount_cents", filter=Q(kind__in=[LedgerEntry.Kind.PAYPAL, LedgerEntry.Kind.REFUND])),
+        cash=Sum("amount_cents", filter=Q(kind__in=[LedgerEntry.Kind.MANUAL, LedgerEntry.Kind.CORRECTION])),
     )
     payouts = Payout.objects.select_related("created_by").order_by("-created_at", "-pk")
-    payout_total = (
-        payouts.filter(status=Payout.Status.COMPLETED).aggregate(total=Sum("amount_cents"))["total"]
-        or 0
+    payout_totals = payouts.filter(status=Payout.Status.COMPLETED).aggregate(
+        paypal=Sum("amount_cents", filter=Q(method=Payout.Method.PAYPAL)),
+        cash=Sum("amount_cents", filter=Q(method=Payout.Method.CASH)),
     )
+    paypal_balance = (entry_totals["paypal"] or 0) - (payout_totals["paypal"] or 0)
+    cash_balance = (entry_totals["cash"] or 0) - (payout_totals["cash"] or 0)
+
+    outstanding_participants = (
+        User.objects.filter(is_active=True)
+        .annotate(
+            current_balance=Coalesce(
+                Sum("ledger__amount_cents", filter=LedgerEntry.balance_filter("ledger__")),
+                Value(0),
+            )
+        )
+        .filter(current_balance__lt=0)
+        .order_by("current_balance", "name", "pk")
+    )
+    outstanding_total = sum(-user.current_balance for user in outstanding_participants)
     pending_payments = (
         PayPalPayment.objects.filter(status__in=paypal.OPEN_PAYMENT_STATUSES)
         .select_related("user")
         .order_by("-created_at", "-pk")
     )
+
     return render(
         request,
         "weisswurstrunde/finance_overview.html",
         {
-            "entries": Paginator(entries, 50).get_page(request.GET.get("entries_page")),
+            "outstanding_participants": outstanding_participants,
             "payouts": Paginator(payouts, 50).get_page(request.GET.get("payouts_page")),
             "pending_payments": Paginator(pending_payments, 50).get_page(
                 request.GET.get("paypal_page")
             ),
-            "income_total": entry_totals["income"] or 0,
-            "expense_total": abs(entry_totals["expenses"] or 0),
-            "payout_total": payout_total,
-            "cashbox_total": cashbox_summary()["total"],
-            "pending_paypal_total": pending_payments.aggregate(total=Sum("amount_cents"))["total"]
-            or 0,
+            "paypal_balance": paypal_balance,
+            "cash_balance": cash_balance,
+            "outstanding_total": outstanding_total,
         },
     )
 

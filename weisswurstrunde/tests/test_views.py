@@ -819,13 +819,30 @@ class ViewTests(TestCase):
             note="Einnahme Test",
             recorded_by=self.user,
         )
-        self.event.date = timezone.localdate() - timedelta(days=1)
-        self.event.save(update_fields=["date"])
+        completed_payment = PayPalPayment.objects.create(
+            user=self.user,
+            amount_cents=2500,
+            matching_cents=0,
+            purpose="TOPUP",
+            status=PayPalPayment.Status.COMPLETED,
+        )
         LedgerEntry.objects.create(
             user=self.user,
+            amount_cents=2500,
+            kind=LedgerEntry.Kind.PAYPAL,
+            payment=completed_payment,
+            method="PAYPAL",
+            reference="finance-overview-paypal-income",
+            note="PayPal Guthaben",
+        )
+        self.event.date = timezone.localdate() - timedelta(days=1)
+        self.event.save(update_fields=["date"])
+        other_order = Order.objects.create(user=self.other, event=self.event)
+        LedgerEntry.objects.create(
+            user=self.other,
             amount_cents=-400,
             kind=LedgerEntry.Kind.ORDER,
-            order=self.order,
+            order=other_order,
             reference="finance-overview-expense",
             note="Bestellung Test",
             recorded_by=self.user,
@@ -851,6 +868,14 @@ class ViewTests(TestCase):
             note="Bargeldabhebung",
             created_by=self.user,
         )
+        Payout.objects.create(
+            amount_cents=1000,
+            method=Payout.Method.PAYPAL,
+            status=Payout.Status.COMPLETED,
+            recipient="metzger@example.org",
+            note="PayPal-Auszahlung",
+            created_by=self.user,
+        )
         pending_payment = PayPalPayment.objects.create(
             user=self.other,
             amount_cents=1012,
@@ -858,30 +883,30 @@ class ViewTests(TestCase):
             purpose="TOPUP",
             status=PayPalPayment.Status.PENDING,
         )
-        PayPalPayment.objects.create(
-            user=self.other,
-            amount_cents=1013,
-            matching_cents=13,
-            purpose="TOPUP",
-            status=PayPalPayment.Status.COMPLETED,
-        )
 
         response = self.client.get(path, secure=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["income_total"], 1200)
-        self.assertEqual(response.context["expense_total"], 400)
-        self.assertEqual(response.context["payout_total"], 700)
-        self.assertEqual(response.context["cashbox_total"], 100)
-        self.assertEqual(response.context["pending_paypal_total"], 1012)
+        self.assertEqual(response.context["paypal_balance"], 1500)
+        self.assertEqual(response.context["cash_balance"], 500)
+        self.assertEqual(response.context["outstanding_total"], 400)
+        self.assertNotIn("payout_total", response.context)
+        self.assertNotIn("cashbox_total", response.context)
+        self.assertEqual(list(response.context["outstanding_participants"]), [self.other])
         self.assertEqual(list(response.context["pending_payments"]), [pending_payment])
         self.assertContains(response, "Finanzübersicht")
-        self.assertContains(response, "Aktueller Kassenstand")
-        self.assertContains(response, "Einnahme Test")
-        self.assertContains(response, "Bestellung Test")
-        self.assertNotContains(response, "Künftige Bestellung")
+        self.assertContains(response, "PayPal-Konto")
+        self.assertContains(response, "Bargeld-Konto")
+        self.assertContains(response, "Ausstehende Zahlungen")
+        self.assertContains(response, "Offene PayPal-Einzahlungen")
+        self.assertNotContains(response, "Aktueller Kassenstand")
         self.assertContains(response, "Bargeldabhebung")
+        self.assertContains(response, "PayPal-Auszahlung")
         self.assertContains(response, self.other.name)
+        self.assertContains(response, "-4,00")
+        self.assertNotContains(response, "Einnahme Test")
+        self.assertNotContains(response, "Bestellung Test")
+        self.assertNotContains(response, "Künftige Bestellung")
 
     def test_admin_can_start_paypal_payout(self):
         self.user.is_admin = True
