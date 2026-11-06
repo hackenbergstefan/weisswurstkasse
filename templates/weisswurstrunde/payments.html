@@ -11,31 +11,54 @@
 <section class="account-band">
     <div><span class="small-label">{% if balance < 0 %}Offener Betrag{% else %}Dein Guthaben{% endif %}</span><strong
             class="balance-value {% if balance < 0 %}negative{% endif %}">{{ balance|absolute|euros }}</strong>
-    </div>{% if balance < 0 and paypal_enabled %}<form method="post">{% csrf_token %}<input type="hidden" name="action"
-            value="paypal"><input type="hidden" name="paypal-purpose" value="DEBT"><input type="hidden"
-            name="paypal-request_id" value="{{ debt_token }}"><button type="submit" class="button primary"><i
-                data-lucide="arrow-up-right" aria-hidden="true"></i>{{ balance|absolute|euros }} über PayPal.me
-            bezahlen</button></form>{% endif %}
+    </div>{% if balance < 0 and paypal_enabled and paypal_ready %}<a href="{{ paypal_debt_url }}" target="_blank"
+        rel="noopener noreferrer" class="button primary"><i data-lucide="arrow-up-right"
+            aria-hidden="true"></i>{{ balance|absolute|euros }} über PayPal.me bezahlen</a>{% endif %}
 </section>
 <div class="settings-grid">
-    <section>
+    <section class="stack">
         <h2><i data-lucide="wallet" aria-hidden="true"></i>Guthaben über PayPal.me aufladen</h2>
         {% if not paypal_enabled %}<div class="message info">PayPal.me ist noch nicht eingerichtet. Manuelle Zahlungen
             sind verf&uuml;gbar.
+        </div>{% endif %}
+        {% if not request.user.paypal_username %}
+        <div class="message info">Um mit PayPal zu bezahlen, hinterlege bitte zuerst deinen <a
+                href="{% url 'profile' %}"><strong>PayPal-Benutzernamen im Profil</strong></a>.</div>
+        {% elif not request.user.paypal_verified %}
+        <div class="message info">Dein PayPal-Benutzername <strong>{{ request.user.paypal_username }}</strong> ist noch
+            nicht validiert. Bitte t&auml;tige einmalig eine Test&uuml;berweisung von 0,01&nbsp;&euro; &uuml;ber
+            PayPal.me. Erst wenn dieser Zahlungseingang validiert ist, ist der Benutzername g&uuml;ltig.</div>
+        {% if paypal_enabled %}
+        <div class="button-row">
+            <a class="button paypal-button" href="{{ paypal_verify_url }}" target="_blank" rel="noopener noreferrer"><i
+                    data-lucide="arrow-up-right" aria-hidden="true"></i>0,01 &euro; Test&uuml;berweisung &ouml;ffnen</a>
+            <form method="post" action="{% url 'paypal_sync' %}">{% csrf_token %}<button type="submit"
+                    class="button secondary"><i data-lucide="refresh-cw" aria-hidden="true"></i>PayPal-Mail
+                    pr&uuml;fen</button></form>
         </div>
-        {% endif %}<form method="post" class="stack" id="topup-form">{% csrf_token %}<input type="hidden" name="action"
+        {% endif %}
+        {% endif %}
+        {% if paypal_enabled and paypal_ready %}
+        <div class="amount-presets" role="group" aria-label="PayPal.me Schnellauswahl">
+            {% for preset in paypal_presets %}<a class="button paypal-button" href="{{ preset.url }}" target="_blank"
+                rel="noopener noreferrer"><i data-lucide="arrow-up-right" aria-hidden="true"></i>{{ preset.euros }}
+                &euro;</a>{% endfor %}
+        </div>
+        {% endif %}
+        <form method="post" class="stack" id="topup-form">{% csrf_token %}<input type="hidden" name="action"
                 value="paypal">
-            <fieldset {% if not paypal_enabled %}disabled{% endif %}>
-                <div class="amount-presets" role="group" aria-label="Aufladebetrag"><button type="button"
-                        data-amount="10">10 &euro;</button><button type="button" data-amount="20" aria-pressed="true">20
-                        &euro;</button><button type="button" data-amount="50">50 &euro;</button></div>
-                {% include 'weisswurstrunde/fields.html' with form=paypal_form %}<p class="muted">Zur eindeutigen
-                    Zuordnung wird ein zufaelliger Aufschlag von 0 bis 30 Cent hinzugefuegt. Bitte zahle den
-                    angezeigten Gesamtbetrag genau.</p><button type="submit" class="button paypal-button"><i
-                        data-lucide="arrow-up-right" aria-hidden="true"></i>PayPal.me öffnen
+            <fieldset {% if not paypal_enabled or not paypal_ready %}disabled{% endif %}>
+                {% include 'weisswurstrunde/fields.html' with form=paypal_form %}<button type="submit"
+                    class="button paypal-button"><i data-lucide="arrow-up-right" aria-hidden="true"></i>PayPal.me
+                    &ouml;ffnen
                 </button>
             </fieldset>
         </form>
+        {% if paypal_enabled and paypal_ready %}
+        <form method="post" action="{% url 'paypal_sync' %}">{% csrf_token %}<button type="submit"
+                class="button secondary"><i data-lucide="refresh-cw" aria-hidden="true"></i>PayPal-Mail
+                pr&uuml;fen</button></form>
+        {% endif %}
     </section>
     <section>
         <h2><i data-lucide="banknote" aria-hidden="true"></i>Manuelle Zahlung</h2>
@@ -91,39 +114,4 @@
         </table>
     </div>
 </section>{% endif %}
-<section class="section-space">
-    <h2>PayPal-Zahlungen</h2>
-    <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>Datum</th>
-                    <th>Status</th>
-                    <th class="numeric">Betrag</th>
-                    <th>Mailabgleich</th>
-                </tr>
-            </thead>
-            <tbody>{% for payment in payment_records %}<tr>
-                    <td>{{ payment.created_at|date:'d.m.Y H:i' }}<small
-                            class="block muted">{{ payment.get_purpose_display }}</small></td>
-                    <td><span
-                            class="badge {% if payment.status == 'FAILED' %}due{% endif %}">{{ payment.get_status_display }}</span>
-                    </td>
-                    <td class="numeric">{{ payment.amount_cents|euros }}</td>
-                    <td>
-                        {% if payment.status == 'PENDING' or payment.status == 'CREATED' %}<form method="post"
-                            action="{% url 'paypal_sync' payment.pk %}">
-                            {% csrf_token %}<button type="submit" class="button secondary small"><i
-                                    data-lucide="refresh-cw" aria-hidden="true"></i>PayPal-Mail prüfen</button></form>
-                        <form method="post" action="{% url 'paypal_delete' payment.pk %}">{% csrf_token %}<button
-                                type="submit" class="button secondary small"><i data-lucide="trash-2"
-                                    aria-hidden="true"></i>Entfernen</button></form>
-                        {% endif %}
-                    </td>
-                </tr>{% empty %}<tr>
-                    <td colspan="4" class="empty-state">Noch keine PayPal-Zahlungen.</td>
-                </tr>{% endfor %}</tbody>
-        </table>
-    </div>
-</section>
 {% endblock %}

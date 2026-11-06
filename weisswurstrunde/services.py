@@ -21,6 +21,7 @@ from .models import (
     OrderItem,
     OrderReminder,
     Payout,
+    PayPalPayment,
     Product,
     User,
 )
@@ -680,19 +681,18 @@ def reconcile():
         expected = -order.total if now >= order.event.charge_at else 0
         if booked != expected:
             issues.append(f"Order {order.pk}: ledger {booked}, expected {expected}")
-    for user in User.objects.all():
-        for payment in user.paypal_payments.all():
-            expected = (
-                payment.amount_cents - payment.refunded_cents
-                if payment.status
-                in {
-                    "COMPLETED",
-                    "PARTIALLY_REFUNDED",
-                    "REFUNDED",
-                }
-                else 0
-            )
-            actual = payment.entries.aggregate(total=Sum("amount_cents"))["total"] or 0
-            if expected != actual:
-                issues.append(f"PayPal {payment.pk}: ledger {actual}, expected {expected}")
+    for payment in PayPalPayment.objects.all():
+        expected = (
+            payment.amount_cents - payment.refunded_cents
+            if payment.status
+            in {
+                PayPalPayment.Status.COMPLETED,
+                PayPalPayment.Status.PARTIALLY_REFUNDED,
+                PayPalPayment.Status.REFUNDED,
+            }
+            else 0
+        )
+        actual = payment.entries.aggregate(total=Sum("amount_cents"))["total"] or 0
+        if expected != actual:
+            issues.append(f"PayPal {payment.pk}: ledger {actual}, expected {expected}")
     return issues

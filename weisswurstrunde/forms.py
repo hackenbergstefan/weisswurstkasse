@@ -41,11 +41,21 @@ class RegisterForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ["name", "email", "paypal_email"]
-        labels = {"name": "Name", "email": "E-Mail", "paypal_email": "PayPal E-Mail"}
+        fields = ["name", "email", "paypal_username"]
+        labels = {
+            "name": "Name",
+            "email": "E-Mail",
+            "paypal_username": "PayPal-Benutzername",
+        }
 
     def clean_email(self):
         return self.cleaned_data["email"].strip().lower()
+
+    def clean_paypal_username(self):
+        username = " ".join((self.cleaned_data.get("paypal_username") or "").split()).lstrip("@")
+        if username and User.objects.filter(paypal_username__iexact=username).exists():
+            raise ValidationError("Dieser PayPal-Benutzername wird bereits verwendet.")
+        return username
 
     def clean_invitation(self):
         code = self.cleaned_data["invitation"]
@@ -65,6 +75,7 @@ class RegisterForm(forms.ModelForm):
 
     def save(self, commit=True):
         user = super().save(commit=False)
+        user.paypal_verified = False
         user.set_password(self.cleaned_data["password"])
         if commit:
             user.save()
@@ -74,19 +85,53 @@ class RegisterForm(forms.ModelForm):
 class ProfileForm(forms.ModelForm):
     current_password = forms.CharField(label="Aktuelles Passwort", widget=forms.PasswordInput())
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._initial_paypal_username = " ".join(
+            (self.instance.paypal_username or "").split()
+        ).lstrip("@")
+        self.paypal_username_changed = False
+
     class Meta:
         model = User
-        fields = ["name", "email", "paypal_email"]
-        labels = {"name": "Name", "email": "E-Mail", "paypal_email": "PayPal E-Mail"}
+        fields = ["name", "email", "paypal_username"]
+        labels = {
+            "name": "Name",
+            "email": "E-Mail",
+            "paypal_username": "PayPal-Benutzername",
+        }
 
     def clean_email(self):
         return self.cleaned_data["email"].strip().lower()
+
+    def clean_paypal_username(self):
+        username = " ".join((self.cleaned_data.get("paypal_username") or "").split()).lstrip("@")
+        if (
+            username
+            and User.objects.exclude(pk=self.instance.pk)
+            .filter(paypal_username__iexact=username)
+            .exists()
+        ):
+            raise ValidationError("Dieser PayPal-Benutzername wird bereits verwendet.")
+        return username
 
     def clean_current_password(self):
         password = self.cleaned_data["current_password"]
         if not self.instance.check_password(password):
             raise ValidationError("Das Passwort ist nicht korrekt.")
         return password
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        new_username = " ".join((user.paypal_username or "").split()).lstrip("@")
+        self.paypal_username_changed = (
+            new_username.lower() != self._initial_paypal_username.lower()
+        )
+        if not new_username or self.paypal_username_changed:
+            user.paypal_verified = False
+        if commit:
+            user.save()
+        return user
 
 
 class VacationForm(forms.ModelForm):
@@ -199,23 +244,31 @@ class ManualPaymentForm(AmountForm):
     note = forms.CharField(label="Notiz", max_length=500, required=False)
 
 
-class PayPalForm(AmountForm):
+class PayPalForm(forms.Form):
     purpose = forms.ChoiceField(
-        choices=[("TOPUP", "Guthaben"), ("DEBT", "Ausgleich")], widget=forms.HiddenInput()
+        choices=[("TOPUP", "Guthaben"), ("DEBT", "Ausgleich")],
+        required=False,
+        initial="TOPUP",
+        widget=forms.HiddenInput(),
     )
     amount = forms.DecimalField(
-        label="Betrag (EUR)",
+        label="Eigener Betrag (EUR)",
         required=False,
         min_value=Decimal("0.01"),
         max_value=Decimal("10000.00"),
         max_digits=7,
         decimal_places=2,
-        widget=forms.NumberInput(attrs={"step": "0.01", "inputmode": "decimal"}),
+        widget=forms.NumberInput(
+            attrs={"step": "0.01", "inputmode": "decimal", "placeholder": "z.B. 15.00"}
+        ),
     )
+
+    def clean_purpose(self):
+        return self.cleaned_data.get("purpose") or "TOPUP"
 
     def clean(self):
         data = super().clean()
-        if data.get("purpose") == "TOPUP" and not data.get("amount"):
+        if data.get("purpose", "TOPUP") == "TOPUP" and not data.get("amount"):
             self.add_error("amount", "Bitte einen Betrag eingeben.")
         return data
 

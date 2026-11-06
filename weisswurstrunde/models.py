@@ -22,7 +22,8 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser):
     name = models.CharField(max_length=120)
     email = models.EmailField(unique=True)
-    paypal_email = models.EmailField()
+    paypal_username = models.CharField(max_length=120, blank=True, default="")
+    paypal_verified = models.BooleanField(default=False)
     vacation_start = models.DateField(null=True, blank=True)
     vacation_end = models.DateField(null=True, blank=True)
     order_reminders = models.BooleanField(default=False)
@@ -31,22 +32,35 @@ class User(AbstractBaseUser):
     created_at = models.DateTimeField(default=timezone.now)
     objects = UserManager()
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = ["name", "paypal_email"]
+    REQUIRED_FIELDS = ["name"]
 
     class Meta:
         ordering = ["name", "pk"]
-        constraints = [models.UniqueConstraint(Lower("email"), name="unique_login_email_ci")]
+        constraints = [
+            models.UniqueConstraint(Lower("email"), name="unique_login_email_ci"),
+            models.UniqueConstraint(
+                Lower("paypal_username"),
+                condition=~Q(paypal_username=""),
+                name="unique_paypal_username_ci",
+            ),
+        ]
 
     def clean(self):
         super().clean()
         self.email = self.email.strip().lower()
-        self.paypal_email = self.paypal_email.strip().lower()
+        self.paypal_username = " ".join((self.paypal_username or "").split()).lstrip("@")
+        if not self.paypal_username:
+            self.paypal_verified = False
         if (self.vacation_start is None) != (self.vacation_end is None):
             raise ValidationError(
                 "Urlaubsbeginn und Urlaubsende muessen gemeinsam angegeben werden."
             )
         if self.vacation_start and self.vacation_end and self.vacation_start > self.vacation_end:
             raise ValidationError("Das Urlaubsende darf nicht vor dem Urlaubsbeginn liegen.")
+
+    @property
+    def paypal_ready(self):
+        return bool(self.paypal_username and self.paypal_verified)
 
     def is_on_vacation(self, event_date):
         return (
@@ -187,25 +201,24 @@ class DefaultItem(models.Model):
 
 class PayPalPayment(models.Model):
     class Status(models.TextChoices):
-        CREATED = "CREATED", "Erstellt"
-        APPROVED = "APPROVED", "Freigegeben"
-        PENDING = "PENDING", "Ausstehend"
+        UNMATCHED = "UNMATCHED", "Nicht zugeordnet"
         COMPLETED = "COMPLETED", "Erfolgreich"
-        CANCELLED = "CANCELLED", "Abgebrochen"
-        FAILED = "FAILED", "Fehlgeschlagen"
         REFUNDED = "REFUNDED", "Erstattet"
         PARTIALLY_REFUNDED = "PARTIALLY_REFUNDED", "Teilweise erstattet"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="paypal_payments")
+    user = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name="paypal_payments", null=True, blank=True
+    )
+    sender_name = models.CharField(max_length=180, blank=True, default="")
+    subject = models.CharField(max_length=255, blank=True, default="")
     amount_cents = models.PositiveIntegerField(validators=[MinValueValidator(1)])
-    matching_cents = models.PositiveSmallIntegerField(
-        null=True, blank=True, validators=[MinValueValidator(0), MaxValueValidator(30)]
-    )
     purpose = models.CharField(
-        max_length=10, choices=[("TOPUP", "Guthaben"), ("DEBT", "Ausgleich")]
+        max_length=10,
+        choices=[("TOPUP", "Guthaben"), ("DEBT", "Ausgleich")],
+        default="TOPUP",
     )
-    status = models.CharField(max_length=24, choices=Status, default=Status.CREATED)
+    status = models.CharField(max_length=24, choices=Status, default=Status.COMPLETED)
     order_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     capture_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     refunded_cents = models.PositiveIntegerField(default=0)
@@ -214,15 +227,6 @@ class PayPalPayment(models.Model):
     provider_message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["matching_cents"],
-                condition=Q(status__in=["CREATED", "APPROVED", "PENDING"]),
-                name="unique_open_paypal_matching_cents",
-            )
-        ]
 
 
 class Payout(models.Model):

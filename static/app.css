@@ -1096,21 +1096,19 @@ input[type="checkbox"] {
 .amount-presets {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 4px;
 }
 
-.amount-presets button {
+.amount-presets button,
+.amount-presets a {
   flex: 1;
-  background: var(--white);
-  border: 1px solid var(--line);
-  padding: 12px;
-  font-weight: 700;
 }
 
-.amount-presets button[aria-pressed="true"] {
-  background: var(--green-light);
-  border-color: var(--green);
-  color: var(--green);
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
 }
 
 fieldset {

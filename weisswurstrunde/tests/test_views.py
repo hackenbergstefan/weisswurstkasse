@@ -27,13 +27,15 @@ class ViewTests(TestCase):
             "test@example.org",
             "a-long-test-password",
             name="Stefan",
-            paypal_email="paypal@example.org",
+            paypal_username="Stefan Hackenberg",
+            paypal_verified=True,
         )
         self.other = User.objects.create_user(
             "other@example.org",
             "a-long-test-password",
             name="Thomas",
-            paypal_email="other-paypal@example.org",
+            paypal_username="Thomas",
+            paypal_verified=True,
         )
         self.product = Product.objects.create(name="Weisswurst", price_cents=160)
         self.event = Event.objects.create(
@@ -251,7 +253,7 @@ class ViewTests(TestCase):
                 "action": "profile",
                 "profile-name": "New Name",
                 "profile-email": "changed@example.org",
-                "profile-paypal_email": "separate-paypal@example.org",
+                "profile-paypal_username": "Changed Username",
                 "profile-current_password": "a-long-test-password",
                 "user_id": self.other.pk,
                 "is_admin": True,
@@ -262,9 +264,11 @@ class ViewTests(TestCase):
         self.user.refresh_from_db()
         self.other.refresh_from_db()
         self.assertEqual(self.user.name, "New Name")
-        self.assertEqual(self.user.paypal_email, "separate-paypal@example.org")
+        self.assertEqual(self.user.paypal_username, "Changed Username")
+        self.assertFalse(self.user.paypal_verified)
         self.assertEqual(self.other.name, "Thomas")
         self.assertFalse(self.user.is_admin)
+        self.assertContains(self.client.get("/profile/"), "Test&uuml;berweisung von 0,01")
 
         response = self.client.post(
             "/profile/",
@@ -507,40 +511,50 @@ class ViewTests(TestCase):
         self.assertTrue(self.user.check_password("1"))
         self.assertEqual(self.client.get("/").status_code, 200)
 
-    def test_paypal_actions_require_ownership_and_post(self):
-        payment = PayPalPayment.objects.create(user=self.other, amount_cents=1000, purpose="TOPUP")
+    @override_settings(PAYPAL_ME_LINK="https://paypal.me/stammtisch")
+    def test_paypal_sync_requires_post_and_login(self):
+        path = reverse("paypal_sync")
+        self.assertEqual(self.client.post(path).status_code, 302)
         self.client.force_login(self.user)
-        for action in ["retry", "close"]:
-            path = f"/paypal/{payment.pk}/{action}/"
-            self.assertEqual(self.client.post(path).status_code, 404)
-        path = f"/paypal/{payment.pk}/sync/"
-        self.assertEqual(self.client.post(path).status_code, 404)
         self.assertEqual(self.client.get(path).status_code, 405)
 
-    def test_payments_explains_paypal_matching_surcharge(self):
+    @override_settings(PAYPAL_ME_LINK="https://paypal.me/stammtisch")
+    def test_payments_shows_preset_buttons_custom_amount_and_verification_states(self):
         self.client.force_login(self.user)
-
         response = self.client.get("/payments/", secure=True)
+        self.assertContains(response, 'href="https://paypal.me/stammtisch/10"')
+        self.assertContains(response, 'href="https://paypal.me/stammtisch/20"')
+        self.assertContains(response, 'href="https://paypal.me/stammtisch/50"')
+        self.assertNotContains(response, "zufaelliger Aufschlag")
 
-        self.assertContains(response, "zufaelliger Aufschlag von 0 bis 30 Cent")
-
-    def test_user_can_remove_only_own_pending_paypal_payment(self):
-        payment = PayPalPayment.objects.create(
-            user=self.user,
-            amount_cents=1017,
-            matching_cents=17,
-            purpose="TOPUP",
-            status=PayPalPayment.Status.PENDING,
+        custom = self.client.post(
+            "/payments/",
+            {"action": "paypal", "paypal-purpose": "TOPUP", "paypal-amount": "15.50"},
+            secure=True,
         )
-        self.client.force_login(self.user)
+        self.assertEqual(custom.status_code, 302)
+        self.assertEqual(custom["Location"], "https://paypal.me/stammtisch/15,50")
+        self.assertFalse(PayPalPayment.objects.exists())
 
-        response = self.client.get("/payments/", secure=True)
-        self.assertContains(response, reverse("paypal_delete", args=[payment.pk]))
-        response = self.client.post(reverse("paypal_delete", args=[payment.pk]), secure=True)
+        self.user.paypal_verified = False
+        self.user.save(update_fields=["paypal_verified"])
+        unverified_page = self.client.get("/payments/", secure=True)
+        self.assertContains(unverified_page, "Test&uuml;berweisung von 0,01")
+        self.assertContains(unverified_page, 'href="https://paypal.me/stammtisch/0,01"')
+        self.assertNotContains(unverified_page, 'href="https://paypal.me/stammtisch/10"')
+        blocked = self.client.post(
+            "/payments/",
+            {"action": "paypal", "paypal-purpose": "TOPUP", "paypal-amount": "20.00"},
+            secure=True,
+        )
+        self.assertEqual(blocked.status_code, 200)
+        self.assertContains(blocked, "Testueberweisung von 0,01 EUR")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response["Location"], "/payments/")
-        self.assertFalse(PayPalPayment.objects.filter(pk=payment.pk).exists())
+        self.user.paypal_username = ""
+        self.user.save(update_fields=["paypal_username"])
+        no_username_page = self.client.get("/payments/", secure=True)
+        self.assertContains(no_username_page, "PayPal-Benutzernamen im Profil")
+        self.assertNotContains(no_username_page, 'href="https://paypal.me/stammtisch/10"')
 
     def test_login_logout_and_invalid_login(self):
         self.assertEqual(self.client.get("/login/").status_code, 200)
@@ -557,16 +571,19 @@ class ViewTests(TestCase):
         data = {
             "name": "New",
             "email": "new@example.org",
-            "paypal_email": "separate@example.org",
+            "paypal_username": "New User",
             "password": "strong-test-password-123",
             "password_confirm": "strong-test-password-123",
             "invitation": "invite",
             "is_admin": True,
         }
-        response = self.client.post("/register/", data)
+        response = self.client.post("/register/", data, follow=True)
         self.assertRedirects(response, "/")
+        self.assertContains(response, "Testueberweisung von 0,01 EUR")
         user = User.objects.get(email="new@example.org")
         self.assertFalse(user.is_admin)
+        self.assertEqual(user.paypal_username, "New User")
+        self.assertFalse(user.paypal_verified)
         self.assertTrue(Order.objects.filter(user=user, event=self.event).exists())
         self.client.logout()
         data["email"] = "NEW@example.org"
@@ -821,8 +838,8 @@ class ViewTests(TestCase):
         )
         completed_payment = PayPalPayment.objects.create(
             user=self.user,
+            sender_name=self.user.paypal_username,
             amount_cents=2500,
-            matching_cents=0,
             purpose="TOPUP",
             status=PayPalPayment.Status.COMPLETED,
         )
@@ -876,12 +893,15 @@ class ViewTests(TestCase):
             note="PayPal-Auszahlung",
             created_by=self.user,
         )
-        pending_payment = PayPalPayment.objects.create(
-            user=self.other,
-            amount_cents=1012,
-            matching_cents=12,
+        unmatched_email = PayPalPayment.objects.create(
+            user=None,
+            sender_name="Unbekannter Absender",
+            subject="Sie haben eine Zahlung erhalten",
+            amount_cents=1000,
             purpose="TOPUP",
-            status=PayPalPayment.Status.PENDING,
+            status=PayPalPayment.Status.UNMATCHED,
+            provider_reference="UNMATCHED123",
+            provider_message_id="<unmatched@example.org>",
         )
 
         response = self.client.get(path, secure=True)
@@ -893,12 +913,14 @@ class ViewTests(TestCase):
         self.assertNotIn("payout_total", response.context)
         self.assertNotIn("cashbox_total", response.context)
         self.assertEqual(list(response.context["outstanding_participants"]), [self.other])
-        self.assertEqual(list(response.context["pending_payments"]), [pending_payment])
+        self.assertEqual(list(response.context["unmatched_emails"]), [unmatched_email])
         self.assertContains(response, "Finanzübersicht")
         self.assertContains(response, "PayPal-Konto")
         self.assertContains(response, "Bargeld-Konto")
         self.assertContains(response, "Ausstehende Zahlungen")
-        self.assertContains(response, "Offene PayPal-Einzahlungen")
+        self.assertContains(response, "Nicht zugeordnete PayPal-E-Mails")
+        self.assertContains(response, "Unbekannter Absender")
+        self.assertContains(response, "UNMATCHED123")
         self.assertNotContains(response, "Aktueller Kassenstand")
         self.assertContains(response, "Bargeldabhebung")
         self.assertContains(response, "PayPal-Auszahlung")

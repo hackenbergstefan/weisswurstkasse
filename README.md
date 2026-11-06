@@ -213,23 +213,33 @@ never rewrites historic entries.
 2. Configure an IMAP mailbox that receives PayPal notifications with
   `PAYPAL_IMAP_HOST`, `PAYPAL_IMAP_PORT`, `PAYPAL_IMAP_USER`,
   `PAYPAL_IMAP_PASSWORD` and optionally `PAYPAL_IMAP_FOLDER`.
-3. A participant starts a payment in **Kasse**, follows the generated PayPal.me
-  link and then uses **PayPal-Mail prüfen**. The worker also runs this check every
-  15 minutes. Each open request receives a unique random surcharge from 0 to 30
-  cents; the shown total must be paid exactly and identifies the incoming payment.
-  An open request can be removed from the payment list before it is matched.
-4. Admins use the PayPal link in the separate **PayPal-Auszahlung** section and
+3. Participants optionally enter their `paypal_username` (the sender name shown in
+  incoming PayPal notification emails) during registration or in **Mein Profil**.
+  When setting or changing `paypal_username`, the participant is instructed to
+  send a `0,01 €` test payment via PayPal.me. Once the `0,01 €` notification
+  email is matched, the username is marked as validated (`paypal_verified=True`),
+  the `0,01 €` is credited to the ledger, and PayPal payments are unlocked.
+4. Validated participants can pay directly in **Kasse** using the PayPal.me
+  buttons for `10 €`, `20 €`, `50 €`, a custom amount, or their open balance, and
+  trigger **PayPal-Mail prüfen** (also run by the worker every 15 minutes). There
+  are no `PENDING` pre-bookings: incoming PayPal notification emails are matched
+  directly by `paypal_username` and immediately booked into the ledger.
+5. Incoming PayPal emails that cannot yet be matched to a validated user are
+  recorded as unmatched (`UNMATCHED`), listed in **Finanzübersicht** under
+  **Nicht zugeordnete PayPal-E-Mails**, and automatically matched and booked once
+  the corresponding `paypal_username` is set and validated.
+6. Admins use the PayPal link in the separate **PayPal-Auszahlung** section and
   send the payment manually. Every matching outgoing PayPal notification creates
   a completed payout automatically, including recipient name and transaction code
   in its note.
-5. Successfully matched incoming messages are moved to
+7. Successfully matched incoming messages are moved to
   `Einzahlungen/<User-ID>-<Name>`. Outgoing messages are moved to `Auszahlungen`;
   both folders are created automatically when needed.
 
 PayPal redirects, browser state and self-reported payment forms never credit the
 ledger. Only a matching message from the configured mailbox does that. Message
 IDs and provider references are stored so repeated IMAP scans cannot duplicate
-ledger entries. Ambiguous amount matches are left pending for manual resolution.
+ledger entries.
 
 ## Backups and restoration
 

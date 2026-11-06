@@ -26,7 +26,8 @@ class Command(BaseCommand):
                 email=email,
                 defaults={
                     "name": name,
-                    "paypal_email": email,
+                    "paypal_username": name,
+                    "paypal_verified": True,
                     "is_admin": is_admin,
                 },
             )

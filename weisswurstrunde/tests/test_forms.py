@@ -9,7 +9,7 @@ class FormTests(TestCase):
         data = {
             "name": "Stefan",
             "email": "STEFAN@example.org",
-            "paypal_email": "different@example.org",
+            "paypal_username": "Stefan Hackenberg",
             "password": "a-very-long-random-test-pass",
             "password_confirm": "a-very-long-random-test-pass",
             "invitation": "test-invitation",
@@ -18,8 +18,31 @@ class FormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         user = form.save()
         self.assertEqual(user.email, "stefan@example.org")
-        self.assertEqual(user.paypal_email, "different@example.org")
+        self.assertEqual(user.paypal_username, "Stefan Hackenberg")
+        self.assertFalse(user.paypal_verified)
         self.assertTrue(user.check_password(data["password"]))
+
+        duplicate_username = {
+            **data,
+            "email": "other@example.org",
+            "paypal_username": "stefan hackenberg",
+        }
+        self.assertFalse(RegisterForm(duplicate_username).is_valid())
+
+        without_paypal = {
+            "name": "Anna",
+            "email": "anna@example.org",
+            "paypal_username": "",
+            "password": "a-very-long-random-test-pass",
+            "password_confirm": "a-very-long-random-test-pass",
+            "invitation": "test-invitation",
+        }
+        optional_form = RegisterForm(without_paypal)
+        self.assertTrue(optional_form.is_valid(), optional_form.errors)
+        anna = optional_form.save()
+        self.assertEqual(anna.paypal_username, "")
+        self.assertFalse(anna.paypal_verified)
+
         for invitation in ["wrong", "wrong-\u2603"]:
             data["invitation"] = invitation
             self.assertFalse(RegisterForm(data).is_valid())
@@ -31,7 +54,7 @@ class FormTests(TestCase):
                     {
                         "name": "Stefan",
                         "email": "stefan@example.org",
-                        "paypal_email": "different@example.org",
+                        "paypal_username": "Stefan",
                         "password": password,
                         "password_confirm": password,
                         "invitation": "test-invitation",
@@ -49,7 +72,7 @@ class FormTests(TestCase):
                     {
                         "name": "Stefan",
                         "email": "stefan@example.org",
-                        "paypal_email": "different@example.org",
+                        "paypal_username": "",
                         "password": password,
                         "password_confirm": confirmation,
                         "invitation": "test-invitation",

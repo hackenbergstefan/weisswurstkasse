@@ -107,6 +107,9 @@ def register(request):
             try:
                 with transaction.atomic():
                     user = form.save()
+                    if user.paypal_username:
+                        paypal.match_unmatched_for_user(user)
+                        user.refresh_from_db()
                     for event in Event.objects.filter(status="OPEN", deadline__gt=timezone.now()):
                         services.provision_order(user, event)
                     record(
@@ -118,6 +121,12 @@ def register(request):
                     )
                 login(request, user)
                 messages.success(request, "Willkommen in der Runde.")
+                if user.paypal_username and not user.paypal_verified:
+                    messages.info(
+                        request,
+                        "Bitte taetige eine Testueberweisung von 0,01 EUR ueber PayPal.me, "
+                        "um deinen PayPal-Benutzernamen zu validieren.",
+                    )
                 return redirect("dashboard")
             except IntegrityError:
                 form.add_error("email", "Diese E-Mail wird bereits verwendet.")
@@ -489,9 +498,27 @@ def profile(request):
             if profile_form.is_valid():
                 try:
                     with transaction.atomic():
-                        profile_form.save()
+                        user = profile_form.save()
+                        if profile_form.paypal_username_changed and user.paypal_username:
+                            paypal.match_unmatched_for_user(user)
+                            user.refresh_from_db()
                     record("profile_edited", request.user, user_id=request.user.pk)
-                    messages.success(request, "Profil gespeichert.")
+                    if profile_form.paypal_username_changed and user.paypal_username:
+                        if user.paypal_verified:
+                            messages.success(
+                                request,
+                                "Profil gespeichert. Dein PayPal-Benutzername wurde anhand "
+                                "der Testueberweisung validiert.",
+                            )
+                        else:
+                            messages.info(
+                                request,
+                                "Profil gespeichert. Bitte taetige eine Testueberweisung von "
+                                "0,01 EUR ueber PayPal.me, um deinen PayPal-Benutzernamen "
+                                "zu validieren.",
+                            )
+                    else:
+                        messages.success(request, "Profil gespeichert.")
                     return redirect("profile")
                 except IntegrityError:
                     profile_form.add_error("email", "Diese E-Mail wird bereits verwendet.")
@@ -550,6 +577,8 @@ def profile(request):
             "vacation_form": vacation_form,
             "reminder_form": reminder_form,
             "defaults_form": defaults_form,
+            "paypal_enabled": paypal.enabled(),
+            "paypal_verify_url": paypal.paypal_me_url(paypal.VERIFICATION_AMOUNT_CENTS),
         },
     )
 
@@ -647,11 +676,9 @@ def finance_overview(request):
         .order_by("current_balance", "name", "pk")
     )
     outstanding_total = sum(-user.current_balance for user in outstanding_participants)
-    pending_payments = (
-        PayPalPayment.objects.filter(status__in=paypal.OPEN_PAYMENT_STATUSES)
-        .select_related("user")
-        .order_by("-created_at", "-pk")
-    )
+    unmatched_emails = PayPalPayment.objects.filter(
+        status=PayPalPayment.Status.UNMATCHED
+    ).order_by("-created_at", "-pk")
 
     return render(
         request,
@@ -659,7 +686,7 @@ def finance_overview(request):
         {
             "outstanding_participants": outstanding_participants,
             "payouts": Paginator(payouts, 50).get_page(request.GET.get("payouts_page")),
-            "pending_payments": Paginator(pending_payments, 50).get_page(
+            "unmatched_emails": Paginator(unmatched_emails, 50).get_page(
                 request.GET.get("paypal_page")
             ),
             "paypal_balance": paypal_balance,
@@ -692,9 +719,7 @@ def payments(request):
     else:
         payout_form = None
     manual_form = ManualPaymentForm(initial={"request_id": uuid.uuid4()}, prefix="manual")
-    paypal_form = PayPalForm(
-        initial={"request_id": uuid.uuid4(), "purpose": "TOPUP", "amount": "20.00"}, prefix="paypal"
-    )
+    paypal_form = PayPalForm(initial={"purpose": "TOPUP"}, prefix="paypal")
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "manual":
@@ -716,16 +741,15 @@ def payments(request):
             paypal_form = PayPalForm(request.POST, prefix="paypal")
             if paypal_form.is_valid():
                 try:
-                    payment = paypal.create_payment(
-                        request.user,
-                        paypal_form.cents,
-                        paypal_form.cleaned_data["purpose"],
-                        paypal_form.cleaned_data["request_id"],
+                    amount_cents = (
+                        max(0, -request.user.balance)
+                        if paypal_form.cleaned_data["purpose"] == "DEBT"
+                        else paypal_form.cents
                     )
-                    request.session["paypal_payment"] = str(payment.pk)
-                    return redirect(payment.approval_url)
+                    return redirect(paypal.payment_url(request.user, amount_cents))
                 except (paypal.PayPalError, ValidationError) as error:
                     paypal_form.add_error(None, error_message(error))
+    paypal_ready = request.user.paypal_ready
     return render(
         request,
         "weisswurstrunde/payments.html",
@@ -734,8 +758,23 @@ def payments(request):
             "manual_form": manual_form,
             "paypal_form": paypal_form,
             "paypal_enabled": paypal.enabled(),
-            "debt_token": uuid.uuid4(),
-            "payment_records": request.user.paypal_payments.order_by("-created_at")[:30],
+            "paypal_ready": paypal_ready,
+            "paypal_verify_url": paypal.paypal_me_url(paypal.VERIFICATION_AMOUNT_CENTS),
+            "paypal_debt_url": (
+                paypal.paypal_me_url(-request.user.balance)
+                if request.user.balance < 0 and paypal_ready
+                else ""
+            ),
+            "paypal_presets": [
+                {
+                    "euros": cents // 100,
+                    "cents": cents,
+                    "url": paypal.paypal_me_url(cents),
+                }
+                for cents in paypal.PRESET_AMOUNTS_CENTS
+            ]
+            if paypal_ready
+            else [],
             "payout_form": payout_form,
             "payout_records": Payout.objects.select_related("created_by").order_by("-created_at")[
                 :50
@@ -749,30 +788,15 @@ def payments(request):
 
 @login_required
 @require_POST
-def paypal_sync(request, payment_id):
-    payment = get_object_or_404(PayPalPayment, pk=payment_id, user=request.user)
+def paypal_sync(request):
     try:
-        payment = paypal.sync_payment(payment.pk)
-        messages.success(request, f"PayPal-Mailabgleich: {payment.get_status_display()}.")
+        changed = paypal.sync_mailbox()
+        messages.success(
+            request, f"PayPal-Mailabgleich abgeschlossen ({changed} Buchung(en) verarbeitet)."
+        )
     except (paypal.PayPalError, ValidationError) as error:
         messages.error(request, error_message(error))
-    return redirect("payments")
-
-
-@login_required
-@require_POST
-@transaction.atomic
-def paypal_delete(request, payment_id):
-    payment = get_object_or_404(
-        PayPalPayment.objects.select_for_update(),
-        pk=payment_id,
-        user=request.user,
-        status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING],
-    )
-    payment.delete()
-    record("paypal_payment_deleted", request.user, payment_id=payment.pk)
-    messages.success(request, "Ausstehende PayPal-Zahlung entfernt.")
-    return redirect("payments")
+    return redirect("profile" if request.POST.get("next") == "profile" else "payments")
 
 
 @login_required

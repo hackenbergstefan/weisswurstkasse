@@ -4,7 +4,6 @@ import html
 import imaplib
 import logging
 import re
-import secrets
 from decimal import Decimal, InvalidOperation
 from email import policy
 from email.header import decode_header, make_header
@@ -13,6 +12,7 @@ from email.utils import parsedate_to_datetime
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -20,11 +20,8 @@ from .audit import record
 from .models import LedgerEntry, Payout, PayPalPayment, User
 
 logger = logging.getLogger(__name__)
-OPEN_PAYMENT_STATUSES = (
-    PayPalPayment.Status.CREATED,
-    PayPalPayment.Status.APPROVED,
-    PayPalPayment.Status.PENDING,
-)
+PRESET_AMOUNTS_CENTS = (1000, 2000, 5000)
+VERIFICATION_AMOUNT_CENTS = 1
 
 
 class PayPalError(Exception):
@@ -45,70 +42,32 @@ def money(cents):
     return f"{cents // 100},{cents % 100:02d}"
 
 
-def _paypal_me_url(amount_cents):
+def paypal_me_url(amount_cents):
+    if not enabled():
+        return ""
     amount = str(amount_cents // 100) if amount_cents % 100 == 0 else money(amount_cents)
     return f"{settings.PAYPAL_ME_LINK.rstrip('/')}/{amount}"
 
 
-def _matching_cents():
-    open_cents = set(
-        PayPalPayment.objects.select_for_update()
-        .filter(
-            status__in=OPEN_PAYMENT_STATUSES,
-            matching_cents__isnull=False,
-        )
-        .values_list("matching_cents", flat=True)
-    )
-    available_cents = list(set(range(31)) - open_cents)
-    if not available_cents:
-        raise ValidationError("Es sind bereits zu viele PayPal-Zahlungen offen.")
-    return secrets.choice(available_cents)
+_paypal_me_url = paypal_me_url
 
 
-def create_payment(user, amount_cents, purpose, request_id):
+def payment_url(user, amount_cents):
     if not enabled():
         raise PayPalError("PayPal.me ist noch nicht konfiguriert.")
-    if purpose not in {"TOPUP", "DEBT"}:
-        raise ValidationError("Unbekannter Zahlungszweck.")
-    with transaction.atomic():
-        user = User.objects.select_for_update().get(pk=user.pk)
-        payment = PayPalPayment.objects.filter(pk=request_id).first()
-        if payment and payment.user_id != user.pk:
-            raise ValidationError("Ungueltige Zahlungsanfrage.")
-        if not payment:
-            if PayPalPayment.objects.filter(user=user, status__in=OPEN_PAYMENT_STATUSES).exists():
-                raise ValidationError("Du hast bereits eine offene PayPal-Einzahlung.")
-            if purpose == "DEBT":
-                amount_cents = max(0, -user.balance)
-            if (
-                not isinstance(amount_cents, int)
-                or isinstance(amount_cents, bool)
-                or not 0 < amount_cents <= 1000000
-            ):
-                raise ValidationError("Der Betrag muss zwischen 0,01 und 10.000,00 EUR liegen.")
-            matching_cents = _matching_cents()
-            payment = PayPalPayment.objects.create(
-                id=request_id,
-                user=user,
-                amount_cents=amount_cents + matching_cents,
-                matching_cents=matching_cents,
-                purpose=purpose,
-                status=PayPalPayment.Status.PENDING,
-                approval_url=_paypal_me_url(amount_cents + matching_cents),
-            )
-            record(
-                "paypal_payment_created",
-                user,
-                payment_id=payment.pk,
-                amount_cents=payment.amount_cents,
-                purpose=purpose,
-            )
-        elif payment.purpose != purpose or (
-            purpose == "TOPUP"
-            and payment.amount_cents - (payment.matching_cents or 0) != amount_cents
-        ):
-            raise ValidationError("Diese Zahlungsanfrage wurde bereits anders verwendet.")
-    return payment
+    if not user.paypal_username:
+        raise ValidationError("Bitte hinterlege zuerst deinen PayPal-Benutzernamen im Profil.")
+    if not user.paypal_verified:
+        raise ValidationError(
+            "Bitte validiere zuerst deinen PayPal-Benutzernamen mit einer Testueberweisung von 0,01 EUR."
+        )
+    if (
+        not isinstance(amount_cents, int)
+        or isinstance(amount_cents, bool)
+        or not 0 < amount_cents <= 1000000
+    ):
+        raise ValidationError("Der Betrag muss zwischen 0,01 und 10.000,00 EUR liegen.")
+    return paypal_me_url(amount_cents)
 
 
 def _decode(value):
@@ -129,15 +88,30 @@ def _body(message):
     return "\n".join(values)
 
 
-def _plain_text(text):
-    text = re.sub(
+def _strip_scripts(text):
+    return re.sub(
         r"<(?:style|script)\b[^>]*>.*?</(?:style|script)>",
         " ",
         text,
         flags=re.I | re.S,
     )
+
+
+def _plain_text(text):
+    text = _strip_scripts(text)
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def _segments(text):
+    text = _strip_scripts(text)
+    raw_lines = re.split(r"<[^>]+>|\r?\n", text)
+    segments = []
+    for line in raw_lines:
+        cleaned = re.sub(r"\s+", " ", html.unescape(line)).strip()
+        if cleaned:
+            segments.append(cleaned)
+    return segments
 
 
 def _amount(text):
@@ -176,21 +150,55 @@ def _recipient(text):
     return recipient_name, recipient_email
 
 
+def _clean_sender(value):
+    cleaned = re.sub(r"^(?:paypal\s*[:\-–]\s*)", "", value or "", flags=re.IGNORECASE)
+    return " ".join(cleaned.strip(" :,-.!").split()).lstrip("@")
+
+
+def _sender(segments, text):
+    patterns = (
+        r"^(.+?)\s+hat\s+(?:dir|ihnen)\b.*?\bgesendet\b",
+        r"^(.+?)\s+sent\s+you\b",
+        r"\bvon\s+(.+?)\s+erhalten\b",
+        r"\byou\s+received\b.*?\bfrom\s+(.+?)(?=\s+(?:transaction|transaktions)|[.!]|$)",
+    )
+    for pattern in patterns:
+        for segment in [*segments, text]:
+            match = re.search(pattern, segment, re.IGNORECASE)
+            if match:
+                candidate = _clean_sender(match.group(1))
+                if candidate and not re.search(
+                    r"\b(?:sie\s+haben|du\s+hast|you\s+sent)\b", candidate, re.IGNORECASE
+                ):
+                    return candidate
+    return ""
+
+
 def parse_message(raw, message_id):
     message = email.message_from_bytes(raw, policy=policy.default)
-    subject = _decode(message.get("Subject"))
-    text = _plain_text(f"{subject}\n{_body(message)}")
+    subject = _decode(message.get("Subject")).strip()
+    body = _body(message)
+    combined = f"{subject}\n{body}"
+    text = _plain_text(combined)
+    segments = _segments(combined)
     outgoing = bool(
-        re.search(r"you sent|sie haben eine zahlung gesendet|zahlung gesendet", text, re.IGNORECASE)
-    )
-    incoming = bool(
         re.search(
-            r"you received|sie haben eine zahlung erhalten|zahlung erhalten", text, re.IGNORECASE
+            r"\byou sent\b|\b(?:sie haben|du hast)\s+(?:eine\s+zahlung|\d[\d.,]*\s*(?:€\s*)?(?:EUR|€)\s+an\s+[^.!?\n]+?)\s+gesendet\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    incoming = not outgoing and bool(
+        re.search(
+            r"\byou received\b|\b(?:sie haben|du hast)\b[^.!?\n]*?\berhalten\b|\bzahlung erhalten\b|\bhat\s+(?:dir|ihnen)\b[^.!?\n]*?\bgesendet\b|\bsent\s+you\b",
+            text,
+            re.IGNORECASE,
         )
     )
     if not (incoming or outgoing):
         return None
     recipient_name, recipient_email = _recipient(text) if outgoing else ("", "")
+    sender_name = "" if outgoing else _sender(segments, text)
     try:
         received_at = parsedate_to_datetime(message.get("Date"))
     except (TypeError, ValueError, IndexError, OverflowError):
@@ -198,23 +206,17 @@ def parse_message(raw, message_id):
     if received_at.tzinfo is None:
         received_at = timezone.make_aware(received_at)
     return {
-        "message_id": message.get("Message-ID") or str(message_id),
+        "message_id": (message.get("Message-ID") or str(message_id)).strip(),
+        "subject": subject[:255],
         "amount_cents": _amount(text),
         "reference": _reference(text),
+        "sender_name": sender_name[:180],
         "recipient_name": recipient_name,
         "recipient_email": recipient_email,
         "text": text.lower(),
         "outgoing": outgoing,
         "received_at": received_at,
     }
-
-
-def _match_payment(data):
-    payments = PayPalPayment.objects.select_for_update().filter(
-        status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING]
-    )
-    candidates = [payment for payment in payments if payment.amount_cents == data["amount_cents"]]
-    return candidates[0] if len(candidates) == 1 else None
 
 
 def _incoming_folder(user):
@@ -224,7 +226,11 @@ def _incoming_folder(user):
 def _target_folder(data):
     payment = (
         PayPalPayment.objects.select_related("user")
-        .filter(provider_message_id=data["message_id"])
+        .filter(
+            provider_message_id=data["message_id"],
+            status=PayPalPayment.Status.COMPLETED,
+            user__isnull=False,
+        )
         .first()
     )
     if payment:
@@ -259,23 +265,97 @@ def _move_message(mailbox, message_id, target):
     logger.debug("PayPal-IMAP: Nachricht %s nach %s verschoben (COPY)", message_id, imap_target)
 
 
+def _complete_payment_entry(user, payment):
+    payment.user = user
+    payment.status = PayPalPayment.Status.COMPLETED
+    payment.save(
+        update_fields=[
+            "user",
+            "sender_name",
+            "subject",
+            "status",
+            "provider_reference",
+            "provider_message_id",
+            "updated_at",
+        ]
+    )
+    LedgerEntry.objects.create(
+        user=user,
+        amount_cents=payment.amount_cents,
+        kind=LedgerEntry.Kind.PAYPAL,
+        payment=payment,
+        method="PAYPAL",
+        note="PayPal Guthaben",
+        reference=f"paypal:mail:{payment.provider_reference}",
+        created_at=payment.created_at,
+    )
+    record(
+        "paypal_payment_completed",
+        user,
+        payment_id=payment.pk,
+        amount_cents=payment.amount_cents,
+        provider_reference=payment.provider_reference,
+    )
+
+
 @transaction.atomic
-def _apply_message(data, payment_id=None):
-    if not data or not data["amount_cents"]:
-        return False
-    if (
-        PayPalPayment.objects.filter(provider_message_id=data["message_id"]).exists()
-        or Payout.objects.filter(provider_message_id=data["message_id"]).exists()
-        or (
-            data["reference"]
-            and PayPalPayment.objects.filter(provider_reference=data["reference"]).exists()
+def match_unmatched_for_user(user):
+    user = User.objects.select_for_update().get(pk=user.pk)
+    if not user.is_active or not user.paypal_username:
+        return 0
+    unmatched = list(
+        PayPalPayment.objects.select_for_update()
+        .filter(
+            status=PayPalPayment.Status.UNMATCHED,
+            sender_name__iexact=user.paypal_username,
         )
-    ):
+        .order_by("created_at", "pk")
+    )
+    if not unmatched:
+        return 0
+    if not user.paypal_verified:
+        if not any(
+            payment.amount_cents == VERIFICATION_AMOUNT_CENTS for payment in unmatched
+        ):
+            return 0
+        user.paypal_verified = True
+        user.save(update_fields=["paypal_verified"])
+        record(
+            "paypal_username_verified",
+            user,
+            user_id=user.pk,
+            paypal_username=user.paypal_username,
+        )
+    for payment in unmatched:
+        _complete_payment_entry(user, payment)
+    return len(unmatched)
+
+
+def _find_matching_user(data):
+    sender_name = _clean_sender(data.get("sender_name", ""))
+    if sender_name:
+        return (
+            User.objects.select_for_update()
+            .filter(is_active=True, paypal_username__iexact=sender_name)
+            .exclude(paypal_username="")
+            .first()
+        )
+    return None
+
+
+@transaction.atomic
+def _apply_message(data):
+    if not data or not data["amount_cents"]:
         return False
     if data["outgoing"]:
         provider_reference = (
             data["reference"] or hashlib.sha256(data["message_id"].encode()).hexdigest()
         )
+        if (
+            Payout.objects.filter(provider_message_id=data["message_id"]).exists()
+            or Payout.objects.filter(provider_batch_id=provider_reference).exists()
+        ):
+            return False
         actor = User.objects.filter(is_admin=True, is_active=True).order_by("pk").first()
         note_parts = []
         if data["recipient_name"]:
@@ -301,38 +381,82 @@ def _apply_message(data, payment_id=None):
             provider_reference=provider_reference,
         )
         return True
-    payment = _match_payment(data)
-    if payment_id and (payment is None or str(payment.pk) != str(payment_id)):
+
+    provider_reference = data["reference"] or data["message_id"]
+    existing = (
+        PayPalPayment.objects.select_for_update()
+        .filter(
+            Q(provider_message_id=data["message_id"])
+            | Q(provider_reference=provider_reference)
+        )
+        .first()
+    )
+    if existing and existing.status != PayPalPayment.Status.UNMATCHED:
         return False
-    if payment is None:
+
+    sender_name = _clean_sender(data.get("sender_name", ""))
+    subject = (data.get("subject") or "")[:255]
+    if existing is None:
+        payment = PayPalPayment.objects.create(
+            user=None,
+            sender_name=sender_name[:180],
+            subject=subject,
+            amount_cents=data["amount_cents"],
+            purpose="TOPUP",
+            status=PayPalPayment.Status.UNMATCHED,
+            provider_reference=provider_reference,
+            provider_message_id=data["message_id"],
+            created_at=data["received_at"],
+        )
+    else:
+        payment = existing
+        payment.sender_name = sender_name[:180] or payment.sender_name
+        payment.subject = subject or payment.subject
+
+    user = _find_matching_user(data)
+    if user is None:
+        if existing is None:
+            record(
+                "paypal_payment_unmatched",
+                payment_id=payment.pk,
+                sender_name=payment.sender_name,
+                amount_cents=payment.amount_cents,
+                provider_reference=provider_reference,
+            )
+        else:
+            payment.save(update_fields=["sender_name", "subject", "updated_at"])
         return False
-    payment.status = PayPalPayment.Status.COMPLETED
-    payment.provider_reference = data["reference"] or data["message_id"]
-    payment.provider_message_id = data["message_id"]
-    LedgerEntry.objects.create(
-        user=payment.user,
-        amount_cents=payment.amount_cents,
-        kind=LedgerEntry.Kind.PAYPAL,
-        payment=payment,
-        method="PAYPAL",
-        note="PayPal Guthaben" if payment.purpose == "TOPUP" else "PayPal Ausgleich",
-        reference=f"paypal:mail:{payment.provider_reference}",
-        created_at=data["received_at"],
-    )
-    payment.save(
-        update_fields=["status", "provider_reference", "provider_message_id", "updated_at"]
-    )
-    record(
-        "paypal_payment_completed",
-        payment.user,
-        payment_id=payment.pk,
-        amount_cents=payment.amount_cents,
-        provider_reference=payment.provider_reference,
-    )
+
+    if not user.paypal_verified and data["amount_cents"] == VERIFICATION_AMOUNT_CENTS:
+        user.paypal_verified = True
+        user.save(update_fields=["paypal_verified"])
+        record(
+            "paypal_username_verified",
+            user,
+            user_id=user.pk,
+            paypal_username=user.paypal_username,
+        )
+
+    if not user.paypal_verified:
+        if existing is None:
+            record(
+                "paypal_payment_unmatched",
+                user,
+                payment_id=payment.pk,
+                sender_name=payment.sender_name,
+                amount_cents=payment.amount_cents,
+                provider_reference=provider_reference,
+            )
+        else:
+            payment.save(update_fields=["sender_name", "subject", "updated_at"])
+        return False
+
+    _complete_payment_entry(user, payment)
+    match_unmatched_for_user(user)
     return True
 
 
-def sync_mailbox(payment_id=None):
+def sync_mailbox():
     if not mailbox_enabled():
         raise PayPalError("PayPal-IMAP ist nicht konfiguriert.")
     mode = (
@@ -374,24 +498,14 @@ def sync_mailbox(payment_id=None):
             data = parse_message(raw, message_id.decode()) if raw else None
             if data:
                 logger.debug(
-                    "PayPal-IMAP: Nachricht %s erkannt: Richtung=%s Betrag=%s Referenz=%s",
+                    "PayPal-IMAP: Nachricht %s erkannt: Richtung=%s Absender=%s Betrag=%s Referenz=%s",
                     message_id,
                     "Ausgang" if data["outgoing"] else "Eingang",
+                    data["sender_name"] or "-",
                     data["amount_cents"],
                     data["reference"] or "-",
                 )
-            if payment_id and data:
-                belongs_to_payment = PayPalPayment.objects.filter(
-                    pk=payment_id, provider_message_id=data["message_id"]
-                ).exists()
-                is_pending_payment = PayPalPayment.objects.filter(
-                    pk=payment_id,
-                    status__in=[PayPalPayment.Status.CREATED, PayPalPayment.Status.PENDING],
-                    amount_cents=data["amount_cents"],
-                ).exists()
-                if not belongs_to_payment and not is_pending_payment:
-                    continue
-            changed += int(_apply_message(data, payment_id=payment_id))
+            changed += int(_apply_message(data))
             if data:
                 target = _target_folder(data)
                 if target:
@@ -409,7 +523,3 @@ def sync_mailbox(payment_id=None):
             except (imaplib.IMAP4.error, OSError):
                 pass
 
-
-def sync_payment(payment_id):
-    sync_mailbox(payment_id)
-    return PayPalPayment.objects.get(pk=payment_id)

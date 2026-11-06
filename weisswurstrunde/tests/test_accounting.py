@@ -43,7 +43,7 @@ class AccountingTests(TestCase):
             "stefan@example.org",
             "a-long-test-password",
             name="Stefan",
-            paypal_email="paypal@example.org",
+            paypal_username="Stefan",
         )
         self.product = Product.objects.create(name="Weisswurst", unit="Stueck", price_cents=160)
         self.event = Event.objects.create(
@@ -61,7 +61,7 @@ class AccountingTests(TestCase):
         self.product.active = False
         self.product.save(update_fields=["active"])
         empty_user = User.objects.create_user(
-            "empty@example.org", name="Empty", paypal_email="empty@example.org"
+            "empty@example.org", name="Empty", paypal_username="Empty"
         )
         empty_order = Order.objects.create(user=empty_user, event=self.event)
         with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
@@ -86,7 +86,7 @@ class AccountingTests(TestCase):
         save_order(self.order.pk, {self.product.pk: 3}, self.user)
         save_order(empty_order.pk, {self.product.pk: 1}, empty_user)
         new_user = User.objects.create_user(
-            "new@example.org", name="New", paypal_email="new@example.org"
+            "new@example.org", name="New", paypal_username="New"
         )
         DefaultItem.objects.create(user=new_user, product=self.product, quantity=4)
         new_order = provision_order(new_user, self.event)
@@ -326,7 +326,7 @@ class AccountingTests(TestCase):
             "admin@example.org",
             "admin-test-password",
             name="Admin",
-            paypal_email="admin-paypal@example.org",
+            paypal_username="Admin",
             is_admin=True,
         )
         save_order(self.order.pk, {self.product.pk: 2}, self.user)
@@ -397,7 +397,7 @@ class AccountingTests(TestCase):
             "admin@example.org",
             "admin-test-password",
             name="Admin",
-            paypal_email="admin-paypal@example.org",
+            paypal_username="Admin",
             is_admin=True,
         )
         with self.assertLogs("weisswurstrunde.audit", level="INFO") as logs:
@@ -467,7 +467,7 @@ class AccountingTests(TestCase):
             "admin@example.org",
             "admin-test-password",
             name="Admin",
-            paypal_email="admin@example.org",
+            paypal_username="Admin",
             is_admin=True,
         )
         for status in [Event.Status.OPEN, Event.Status.LOCKED, Event.Status.SETTLED]:
@@ -517,7 +517,7 @@ class AccountingTests(TestCase):
             "payout-admin@example.org",
             "admin-test-password",
             name="Payout Admin",
-            paypal_email="admin-paypal@example.org",
+            paypal_username="Payout Admin",
             is_admin=True,
         )
         payout = create_payout(500, Payout.Method.CASH, "", "Kasse", admin)
@@ -638,8 +638,8 @@ class AccountingTests(TestCase):
     def test_email_uniqueness_and_password_hash(self):
         self.assertNotEqual(self.user.password, "a-long-test-password")
         self.assertTrue(self.user.check_password("a-long-test-password"))
-        self.assertNotEqual(self.user.email, self.user.paypal_email)
+        self.assertEqual(self.user.paypal_username, "Stefan")
         with self.assertRaises((ValidationError, IntegrityError)), transaction.atomic():
             User.objects.create_user(
-                "STEFAN@example.org", "test", name="Duplicate", paypal_email="another@example.org"
+                "STEFAN@example.org", "test", name="Duplicate", paypal_username="Another"
             )

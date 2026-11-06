@@ -4,7 +4,14 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
 from weisswurstrunde.models import LedgerEntry, Payout, PayPalPayment, User
-from weisswurstrunde.paypal import _apply_message, create_payment, parse_message, sync_mailbox
+from weisswurstrunde.paypal import (
+    _apply_message,
+    match_unmatched_for_user,
+    parse_message,
+    payment_url,
+    sync_mailbox,
+)
+from weisswurstrunde.services import reconcile
 
 
 @override_settings(
@@ -18,85 +25,144 @@ from weisswurstrunde.paypal import _apply_message, create_payment, parse_message
 class PayPalMailTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
-            "test@example.org", "test-password", name="Test", paypal_email="buyer@example.org"
+            "test@example.org",
+            "test-password",
+            name="Test",
+            paypal_username="Jessica Fink",
+            paypal_verified=True,
         )
 
-    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
-    def test_create_payment_uses_paypal_me_and_waits_for_mail(self, _choice):
-        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d5")
-        self.assertEqual(payment.status, PayPalPayment.Status.PENDING)
-        self.assertEqual(payment.matching_cents, 17)
-        self.assertEqual(payment.approval_url, "https://paypal.me/stammtisch/20,17")
+    def test_payment_url_uses_exact_amount_and_requires_verified_username(self):
+        self.assertEqual(payment_url(self.user, 1000), "https://paypal.me/stammtisch/10")
+        self.assertEqual(payment_url(self.user, 2000), "https://paypal.me/stammtisch/20")
+        self.assertEqual(payment_url(self.user, 5000), "https://paypal.me/stammtisch/50")
+        self.assertEqual(payment_url(self.user, 1545), "https://paypal.me/stammtisch/15,45")
+        self.assertFalse(PayPalPayment.objects.exists())
 
-    @patch("weisswurstrunde.paypal.secrets.choice", side_effect=lambda cents: cents[0])
-    def test_open_payments_reserve_distinct_matching_cents(self, _choice):
-        other_user = User.objects.create_user(
-            "other@example.org", "test-password", name="Other", paypal_email="other@example.org"
+        unverified = User.objects.create_user(
+            "unverified@example.org",
+            "test-password",
+            name="Unverified",
+            paypal_username="Max Mustermann",
+            paypal_verified=False,
         )
-        PayPalPayment.objects.create(
-            user=other_user,
-            amount_cents=2003,
-            matching_cents=3,
-            purpose="TOPUP",
-            status=PayPalPayment.Status.PENDING,
-        )
-        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d9")
-        self.assertNotEqual(payment.matching_cents, 3)
-
-    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
-    def test_user_can_have_only_one_open_paypal_payment(self, _choice):
-        request_id = "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d8"
-        payment = create_payment(self.user, 2000, "TOPUP", request_id)
-
         with self.assertRaises(ValidationError):
-            create_payment(self.user, 3000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e1")
+            payment_url(unverified, 2000)
 
-        self.assertEqual(
-            str(create_payment(self.user, 2000, "TOPUP", request_id).pk), str(payment.pk)
+        without_username = User.objects.create_user(
+            "nouser@example.org",
+            "test-password",
+            name="NoUser",
         )
-        payment.status = PayPalPayment.Status.COMPLETED
-        payment.save(update_fields=["status"])
-        next_payment = create_payment(
-            self.user, 3000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e1"
-        )
-        self.assertEqual(next_payment.status, PayPalPayment.Status.PENDING)
+        with self.assertRaises(ValidationError):
+            payment_url(without_username, 2000)
 
     def test_invalid_payment_amount_is_rejected(self):
         with self.assertRaises(ValidationError):
-            create_payment(self.user, 0, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d6")
+            payment_url(self.user, 0)
+        with self.assertRaises(ValidationError):
+            payment_url(self.user, 1000001)
 
-    @patch("weisswurstrunde.paypal.secrets.choice", return_value=0)
-    def test_incoming_mail_books_once(self, _choice):
+    def test_incoming_html_mail_matches_paypal_username_and_books_ledger_directly(self):
         raw = (
-            b"From: service@paypal.com\n"
+            b"From: service@paypal.de\n"
             b"Subject: Sie haben eine Zahlung erhalten\n"
+            b"Content-Type: text/html; charset=utf-8\n"
+            b"Content-Transfer-Encoding: quoted-printable\n"
             b"Date: Tue, 29 Sep 2026 08:00:00 +0200\n"
-            b"Message-ID: <mail-1@example.org>\n\n"
-            b"Sie haben 20,00 EUR von buyer@example.org erhalten. "
-            b"Transaktionscode: 9ABCD123456\n"
+            b"Message-ID: <mail-html-1@example.org>\n\n"
+            b"<html><body><p>Hallo Stefan Hackenberg,</p>"
+            b"<span>Jessica Fink hat dir 20,15=C2=A0=E2=82=AC=C2=A0EUR gesendet</span>"
+            b"<strong>Transaktionscode</strong><a>9ABCD123456</a>"
+            b"<p>Du hast Fragen? Sie haben jederzeit Zugriff auf Ihr Konto.</p>"
+            b"</body></html>\n"
         )
-        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d7")
         data = parse_message(raw, "1")
+        self.assertEqual(data["sender_name"], "Jessica Fink")
+        self.assertEqual(data["amount_cents"], 2015)
+        self.assertEqual(data["reference"], "9ABCD123456")
+        self.assertFalse(data["outgoing"])
+
         self.assertTrue(_apply_message(data))
         self.assertFalse(_apply_message(data))
-        payment.refresh_from_db()
-        self.assertEqual(payment.status, PayPalPayment.Status.COMPLETED)
-        self.assertEqual(self.user.balance, 2000)
+        self.assertEqual(self.user.balance, 2015)
         self.assertEqual(LedgerEntry.objects.count(), 1)
-
-    @patch("weisswurstrunde.paypal.secrets.choice", return_value=17)
-    def test_incoming_mail_matches_payment_by_adjusted_amount(self, _choice):
-        raw = (
-            b"Subject: You received a payment\n"
-            b"Message-ID: <mail-adjusted@example.org>\n\n"
-            b"You received 20.17 EUR from unknown@example.org.\n"
-        )
-        payment = create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3e0")
-
-        self.assertTrue(_apply_message(parse_message(raw, "5")))
-        payment.refresh_from_db()
+        self.assertEqual(Payout.objects.count(), 0)
+        payment = PayPalPayment.objects.get()
         self.assertEqual(payment.status, PayPalPayment.Status.COMPLETED)
-        self.assertEqual(self.user.balance, 2017)
+        self.assertEqual(payment.user, self.user)
+        self.assertEqual(reconcile(), [])
+
+    def test_one_cent_transfer_validates_username_and_unlocks_unmatched_payments(self):
+        user = User.objects.create_user(
+            "new@example.org",
+            "test-password",
+            name="New",
+            paypal_username="Max Mustermann",
+            paypal_verified=False,
+        )
+        early_payment = parse_message(
+            b"Subject: Max Mustermann hat dir Geld gesendet\n"
+            b"Message-ID: <mail-early@example.org>\n\n"
+            b"<span>Max Mustermann hat dir 20,00 EUR gesendet</span>\n",
+            "1",
+        )
+        self.assertFalse(_apply_message(early_payment))
+        user.refresh_from_db()
+        self.assertFalse(user.paypal_verified)
+        self.assertEqual(user.balance, 0)
+        self.assertEqual(
+            PayPalPayment.objects.filter(status=PayPalPayment.Status.UNMATCHED).count(), 1
+        )
+
+        verification_mail = parse_message(
+            b"Subject: Max Mustermann hat dir Geld gesendet\n"
+            b"Message-ID: <mail-verify@example.org>\n\n"
+            b"<span>Max Mustermann hat dir 0,01 EUR gesendet</span>\n",
+            "2",
+        )
+        self.assertTrue(_apply_message(verification_mail))
+        user.refresh_from_db()
+        self.assertTrue(user.paypal_verified)
+        self.assertEqual(user.balance, 2001)
+        self.assertEqual(
+            PayPalPayment.objects.filter(status=PayPalPayment.Status.UNMATCHED).count(), 0
+        )
+        self.assertEqual(reconcile(), [])
+
+    def test_unmatched_mail_is_stored_and_matched_once_user_sets_username_and_validates(self):
+        unmatched_verify = parse_message(
+            b"Subject: Zahlung erhalten\n"
+            b"Message-ID: <mail-unmatched-verify@example.org>\n\n"
+            b"<span>Anna Beispiel hat dir 0,01 EUR gesendet</span>\n",
+            "10",
+        )
+        unmatched_topup = parse_message(
+            b"Subject: Zahlung erhalten\n"
+            b"Message-ID: <mail-unmatched-topup@example.org>\n\n"
+            b"<span>Anna Beispiel hat dir 50,00 EUR gesendet</span>\n",
+            "11",
+        )
+        self.assertFalse(_apply_message(unmatched_verify))
+        self.assertFalse(_apply_message(unmatched_topup))
+        self.assertEqual(
+            PayPalPayment.objects.filter(status=PayPalPayment.Status.UNMATCHED).count(), 2
+        )
+
+        anna = User.objects.create_user(
+            "anna@example.org",
+            "test-password",
+            name="Anna",
+            paypal_username="Anna Beispiel",
+            paypal_verified=False,
+        )
+        self.assertEqual(match_unmatched_for_user(anna), 2)
+        anna.refresh_from_db()
+        self.assertTrue(anna.paypal_verified)
+        self.assertEqual(anna.balance, 5001)
+        self.assertEqual(
+            PayPalPayment.objects.filter(status=PayPalPayment.Status.UNMATCHED).count(), 0
+        )
 
     def test_outgoing_mail_completes_payout(self):
         payout = Payout.objects.create(
@@ -150,20 +216,32 @@ class PayPalMailTests(TestCase):
         self.assertEqual(data["reference"], "6DE43837HX011215V")
 
     @patch("weisswurstrunde.paypal.imaplib.IMAP4_SSL")
-    @patch("weisswurstrunde.paypal.secrets.choice", return_value=0)
-    def test_mailbox_reads_messages(self, _choice, imap_class):
-        raw = (
+    def test_mailbox_reads_messages_and_moves_only_matched(self, imap_class):
+        matched_raw = (
             b"From: service@paypal.com\nSubject: You received a payment\n"
             b"Message-ID: <mail-3@example.org>\n\n"
-            b"You received 20.00 EUR from buyer@example.org.\n"
+            b"<span>Jessica Fink hat dir 20,00 EUR gesendet</span>\n"
         )
-        create_payment(self.user, 2000, "TOPUP", "3d1c4a8c-3e2e-4bb0-9d0d-1cde75a0b3d8")
+        unmatched_raw = (
+            b"From: service@paypal.com\nSubject: You received a payment\n"
+            b"Message-ID: <mail-4@example.org>\n\n"
+            b"<span>Unbekannt Person hat dir 10,00 EUR gesendet</span>\n"
+        )
         mailbox = imap_class.return_value
-        mailbox.search.return_value = ("OK", [b"1"])
-        mailbox.fetch.return_value = ("OK", [(b"header", raw), b")"])
+        mailbox.search.return_value = ("OK", [b"1 2"])
+        mailbox.fetch.side_effect = [
+            ("OK", [(b"header", matched_raw), b")"]),
+            ("OK", [(b"header", unmatched_raw), b")"]),
+            ("OK", [(b"header", matched_raw), b")"]),
+            ("OK", [(b"header", unmatched_raw), b")"]),
+        ]
         mailbox.move.return_value = ("OK", [b"1"])
         self.assertEqual(sync_mailbox(), 1)
         mailbox.move.assert_called_once_with(b"1", "Einzahlungen.1-test")
+        self.assertEqual(self.user.balance, 2000)
+        self.assertEqual(
+            PayPalPayment.objects.filter(status=PayPalPayment.Status.UNMATCHED).count(), 1
+        )
         self.assertEqual(sync_mailbox(), 0)
 
     @override_settings(PAYPAL_IMAP_USE_SSL=False, PAYPAL_IMAP_USE_TLS=True)
@@ -173,3 +251,4 @@ class PayPalMailTests(TestCase):
         mailbox.search.return_value = ("OK", [b""])
         self.assertEqual(sync_mailbox(), 0)
         mailbox.starttls.assert_called_once_with()
+

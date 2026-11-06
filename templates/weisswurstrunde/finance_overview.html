@@ -74,35 +74,34 @@
 </section>
 
 <section class="section-space">
-    <h2>Offene PayPal-Einzahlungen</h2>
+    <h2>Nicht zugeordnete PayPal-E-Mails</h2>
     <div class="table-scroll">
         <table>
             <thead>
                 <tr>
                     <th>Datum</th>
-                    <th>Teilnehmer</th>
-                    <th>Zweck</th>
-                    <th>Status</th>
+                    <th>PayPal-Benutzername / E-Mail</th>
+                    <th>Referenz</th>
                     <th class="numeric">Betrag</th>
                 </tr>
             </thead>
-            <tbody>{% for payment in pending_payments %}<tr>
-                    <td class="nowrap">{{ payment.created_at|date:'d.m.Y H:i' }}</td>
-                    <td>{{ payment.user.name }}</td>
-                    <td>{{ payment.get_purpose_display }}</td>
-                    <td>{{ payment.get_status_display }}</td>
-                    <td class="numeric">{{ payment.amount_cents|euros }}</td>
+            <tbody>{% for email in unmatched_emails %}<tr>
+                    <td class="nowrap">{{ email.created_at|date:'d.m.Y H:i' }}</td>
+                    <td>{{ email.sender_name|default:"Unbekannt" }}{% if email.subject %}<small
+                            class="block muted">{{ email.subject }}</small>{% endif %}</td>
+                    <td><code>{{ email.provider_reference|default:"-" }}</code></td>
+                    <td class="numeric">{{ email.amount_cents|euros }}</td>
                 </tr>{% empty %}<tr>
-                    <td colspan="5" class="empty-state">Keine offenen PayPal-Einzahlungen.</td>
+                    <td colspan="4" class="empty-state">Keine nicht zugeordneten PayPal-E-Mails.</td>
                 </tr>{% endfor %}</tbody>
         </table>
     </div>
-    {% if pending_payments.has_other_pages %}<nav class="pagination" aria-label="Offene PayPal-Einzahlungen">
-        {% if pending_payments.has_previous %}<a class="button secondary"
-            href="?paypal_page={{ pending_payments.previous_page_number }}">Zurück</a>{% endif %}
-        <span>{{ pending_payments.number }} / {{ pending_payments.paginator.num_pages }}</span>
-        {% if pending_payments.has_next %}<a class="button secondary"
-            href="?paypal_page={{ pending_payments.next_page_number }}">Weiter</a>{% endif %}
+    {% if unmatched_emails.has_other_pages %}<nav class="pagination" aria-label="Nicht zugeordnete PayPal-E-Mails">
+        {% if unmatched_emails.has_previous %}<a class="button secondary"
+            href="?paypal_page={{ unmatched_emails.previous_page_number }}">Zurück</a>{% endif %}
+        <span>{{ unmatched_emails.number }} / {{ unmatched_emails.paginator.num_pages }}</span>
+        {% if unmatched_emails.has_next %}<a class="button secondary"
+            href="?paypal_page={{ unmatched_emails.next_page_number }}">Weiter</a>{% endif %}
     </nav>{% endif %}
 </section>
 {% endblock %}
